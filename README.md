@@ -31,6 +31,15 @@ Please note that this module is still unfinished and may have bugs. Please try i
 - Admin API endpoints to inspect or modify rate limits
 
 
+## Building
+
+To build Caddy with this module, use [xcaddy](https://github.com/caddyserver/xcaddy):
+
+```bash
+$ xcaddy build --with github.com/mholt/caddy-ratelimit
+```
+
+
 ## Explanation
 
 The `rate_limit` HTTP handler module lets you define rate limit zones, which have a unique name of your choosing.
