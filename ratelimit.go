@@ -9,14 +9,14 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
-// RateLimit describes an HTTP rate limit group.
+// RateLimit describes an HTTP rate limit zone.
 type RateLimit struct {
-	// Request matchers, which defines the class of requests that are in the RL group.
+	// Request matchers, which defines the class of requests that are in the RL zone.
 	MatcherSetsRaw caddyhttp.RawMatcherSets `json:"match,omitempty" caddy:"namespace=http.matchers"`
 
-	// The key which uniquely differentiates rate limits within this group. It could
+	// The key which uniquely differentiates rate limits within this zone. It could
 	// be a static string (no placeholders), resulting in one and only one rate limiter
-	// for the whole group. Or, placeholders could be used to dynamically allocate
+	// for the whole zone. Or, placeholders could be used to dynamically allocate
 	// rate limiters. For example, a key of "foo" will create exactly one rate limiter
 	// for all clients. But a key of "{http.request.remote.host}" will create one rate
 	// limiter for each different client IP address.

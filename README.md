@@ -20,14 +20,14 @@ Please note that this module is still unfinished and may have bugs. Please try i
 - Automatically sets Retry-After header
 - Optional jitter for retry times
 - Configurable memory management
+- Distributed rate limiting across a cluster
 
 
 **PLANNED:**
 
 - Caddyfile support
-- Distributed rate limiting
-- Persist RL state in storage
-- Automatic fractioning of rate limits in distributed cluster
+- Smoothed estimates of distributed rate limiting
+- RL state persisted in storage for resuming after restarts
 - Admin API endpoints to inspect or modify rate limits
 
 
@@ -100,3 +100,46 @@ This example also configures optional values:
 	}
 }
 ```
+
+## Distributed rate limiting
+
+With a little bit more CPU, I/O, and a teensy bit more memory overhead, this module distributes its rate limit state across a cluster. A cluster is simply defined as other rate limit modules that are configured to use the same storage.
+
+Enabling distributed rate limiting is easy:
+
+```json
+{
+	"handler": "rate_limit",
+	"distributed": {}
+}
+```
+
+You can also configure a custom, shared storage that all instances use to coordinate rate limiting:
+
+```json
+{
+	"handler": "rate_limit",
+	"distributed": {},
+	"storage": {
+		"module": "redis"
+	}
+}
+```
+
+
+Note that distributed RL is an approximation, but is eventually consistent. It will be fairly heavy on reads, with a lightly considerable amount of writes.
+
+You can customize how often reads and writes are done:
+
+
+```json
+{
+	"handler": "rate_limit",
+	"distributed": {
+		"write_interval": "1s",
+		"read_interval": "1s"
+	}
+}
+```
+
+You should tune these based on your window sizes, number of instances, and performance characteristics of your chosen storage module.

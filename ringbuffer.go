@@ -157,5 +157,38 @@ func (r *ringBufferRateLimiter) SetWindow(window time.Duration) {
 	r.mu.Unlock()
 }
 
+// Count counts how many events are in the window from the reference time.
+func (r *ringBufferRateLimiter) Count(ref time.Time) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.countUnsynced(ref)
+}
+
+// countUnsycned counts how many events are in the window from the reference time.
+// It is NOT safe to use without a lock on r.mu.
+// TODO: this is currently O(n) but could probably become O(log n) if we switch to some weird, custom binary search modulo ring length around the cursor.
+func (r *ringBufferRateLimiter) countUnsynced(ref time.Time) int {
+	beginningOfWindow := ref.Add(-r.window)
+
+	// This loop is a little gnarly, I know. We start at one before the cursor because that's
+	// the newest event, and we're trying to count how many events are in the window; so
+	// iterating backwards from the cursor and wrapping around to the end of the ring is the
+	// same as iterating events in reverse chronological order starting with most recent. When
+	// we encounter the first element that's outside the window, then eventsInWindow has the
+	// correct count of events within the window.
+	for eventsInWindow := 0; eventsInWindow < len(r.ring); eventsInWindow++ {
+		// start at cursor, add difference between ring length and offset (eventsInWindow),
+		// then subtract 1 because we want to start 1 before cursor (newest event), then
+		// modulus the ring length to wrap around if necessary
+		i := (r.cursor + (len(r.ring) - eventsInWindow - 1)) % len(r.ring)
+		if r.ring[i].Before(beginningOfWindow) {
+			return eventsInWindow
+		}
+	}
+
+	// if we looped the entire ring, all events are within the window
+	return len(r.ring)
+}
+
 // Current time function, to be substituted by tests
 var now = time.Now
