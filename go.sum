@@ -94,8 +94,8 @@ github.com/bombsimon/wsl/v2 v2.0.0/go.mod h1:mf25kr/SqFEPhhcxW1+7pxzGlW+hIl/hYTK
 github.com/boombuler/barcode v1.0.0/go.mod h1:paBWMcWSl3LHKBqUq+rly7CNSldXjb2rDl3JlRe0mD8=
 github.com/bradfitz/go-smtpd v0.0.0-20170404230938-deb6d6237625/go.mod h1:HYsPBTaaSFSlLx/70C2HPIMNZpVV8+vt/A+FMnYP11g=
 github.com/buger/jsonparser v0.0.0-20181115193947-bf1c66bbce23/go.mod h1:bbYlZJ7hK1yFx9hf58LP0zeX7UjIGs20ufpu3evjr+s=
-github.com/caddyserver/caddy/v2 v2.4.0-beta.1.0.20210330201520-aac1ccf12d00 h1:myf2INadYSYDQis6BrAcAqUIjCoxidatsVdx7oQJAg8=
-github.com/caddyserver/caddy/v2 v2.4.0-beta.1.0.20210330201520-aac1ccf12d00/go.mod h1:YBJFK0UJhl86DT7EgeZrmZ7R923h6CHQ/3U8tHB0Av0=
+github.com/caddyserver/caddy/v2 v2.4.0-beta.1.0.20210401181228-7da9241fd7d1 h1:pAZEcBgskvHSUmp1ajKq99pcKrlpMIhe9jarStTmh00=
+github.com/caddyserver/caddy/v2 v2.4.0-beta.1.0.20210401181228-7da9241fd7d1/go.mod h1:YBJFK0UJhl86DT7EgeZrmZ7R923h6CHQ/3U8tHB0Av0=
 github.com/caddyserver/certmagic v0.12.1-0.20210224184602-7550222c4a6a h1:gcqCMCPuHlQPY+XZzOilNouNeRpH40UhMfSp0tmulxI=
 github.com/caddyserver/certmagic v0.12.1-0.20210224184602-7550222c4a6a/go.mod h1:dNOzF4iOB7H9E51xTooMB90vs+2XNVtpnx0liQNsQY4=
 github.com/casbin/casbin/v2 v2.1.2/go.mod h1:YcPU1XXisHhLzuxH9coDNf2FbKpjGlbCg3n9yuLkIJQ=

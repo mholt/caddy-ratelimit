@@ -1,8 +1,10 @@
 package caddyrl
 
 import (
-	"fmt"
+	"strconv"
 
+	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
@@ -12,17 +14,168 @@ func init() {
 	httpcaddyfile.RegisterHandlerDirective("rate_limit", parseCaddyfile)
 }
 
-// UnmarshalCaddyfile implements caddyfile.Unmarshaler.
-func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
-	for d.Next() {
-		return fmt.Errorf("TODO: not yet implemented")
-	}
-	return nil
-}
-
 // parseCaddyfile unmarshals tokens from h into a new Middleware.
 func parseCaddyfile(helper httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
 	var h Handler
 	err := h.UnmarshalCaddyfile(helper.Dispenser)
 	return h, err
+}
+
+// UnmarshalCaddyfile implements caddyfile.Unmarshaler. Syntax:
+//
+// rate_limit {
+//     zone <name> {
+//         key    <string>
+//         window <duration>
+//         events <max_events>
+//     }
+//     distributed {
+//         read_interval  <duration>
+//         write_interval <duration>
+//     }
+//     storage <module...>
+//     jitter  <percent>
+//     sweep_interval <duration>
+// }
+//
+func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	for d.Next() {
+		if d.NextArg() {
+			return d.ArgErr()
+		}
+
+		for nesting := d.Nesting(); d.NextBlock(nesting); {
+			switch d.Val() {
+			case "zone":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				zoneName := d.Val()
+
+				var zone RateLimit
+				for nesting := d.Nesting(); d.NextBlock(nesting); {
+					switch d.Val() {
+					case "key":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if zone.Key != "" {
+							return d.Errf("zone key already specified: %s", zone.Key)
+						}
+						zone.Key = d.Val()
+
+					case "window":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if zone.Window != 0 {
+							return d.Errf("zone window already specified: %s", zone.Window)
+						}
+						window, err := caddy.ParseDuration(d.Val())
+						if err != nil {
+							return d.Errf("invalid window duration '%s': %v", d.Val(), err)
+						}
+						zone.Window = caddy.Duration(window)
+
+					case "events":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if zone.MaxEvents != 0 {
+							return d.Errf("zone max events already specified: %s", zone.MaxEvents)
+						}
+						maxEvents, err := strconv.Atoi(d.Val())
+						if err != nil {
+							return d.Errf("invalid max events integer '%s': %v", d.Val(), err)
+						}
+						zone.MaxEvents = maxEvents
+					}
+				}
+				if zone.Window == 0 || zone.MaxEvents == 0 {
+					return d.Err("a rate limit zone requires both a window and maximum events")
+				}
+
+				if h.RateLimits == nil {
+					h.RateLimits = make(map[string]*RateLimit)
+				}
+				h.RateLimits[zoneName] = &zone
+
+			case "distributed":
+				h.Distributed = new(DistributedRateLimiting)
+
+				for nesting := d.Nesting(); d.NextBlock(nesting); {
+					switch d.Val() {
+					case "read_interval":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if h.Distributed.ReadInterval != 0 {
+							return d.Errf("read interval already specified: %s", h.Distributed.ReadInterval)
+						}
+						interval, err := caddy.ParseDuration(d.Val())
+						if err != nil {
+							return d.Errf("invalid read interval '%s': %v", d.Val(), err)
+						}
+						h.Distributed.ReadInterval = caddy.Duration(interval)
+
+					case "write_interval":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if h.Distributed.WriteInterval != 0 {
+							return d.Errf("write interval already specified: %s", h.Distributed.WriteInterval)
+						}
+						interval, err := caddy.ParseDuration(d.Val())
+						if err != nil {
+							return d.Errf("invalid write interval '%s': %v", d.Val(), err)
+						}
+						h.Distributed.WriteInterval = caddy.Duration(interval)
+					}
+				}
+
+			case "storage":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				modID := "caddy.storage." + d.Val()
+				unm, err := caddyfile.UnmarshalModule(d, modID)
+				if err != nil {
+					return err
+				}
+				storage, ok := unm.(caddy.StorageConverter)
+				if !ok {
+					return d.Errf("module %s is not a caddy.StorageConverter", modID)
+				}
+				h.StorageRaw = caddyconfig.JSONModuleObject(storage, "module", storage.(caddy.Module).CaddyModule().ID.Name(), nil)
+
+			case "jitter":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				if h.Jitter != 0 {
+					return d.Errf("jitter already specified: %s", h.Jitter)
+				}
+				jitter, err := strconv.ParseFloat(d.Val(), 64)
+				if err != nil {
+					return d.Errf("invalid jitter percentage '%s': %v", d.Val(), err)
+				}
+				h.Jitter = jitter
+
+			case "sweep_interval":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				if h.SweepInterval != 0 {
+					return d.Errf("sweep interval already specified: %s", h.SweepInterval)
+				}
+				interval, err := caddy.ParseDuration(d.Val())
+				if err != nil {
+					return d.Errf("invalid sweep interval '%s': %v", d.Val(), err)
+				}
+				h.SweepInterval = caddy.Duration(interval)
+			}
+		}
+	}
+
+	return nil
 }
