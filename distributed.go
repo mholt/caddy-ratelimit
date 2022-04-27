@@ -103,7 +103,7 @@ func (h Handler) syncDistributedWrite(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	err = h.storage.Store(path.Join(storagePrefix, h.Distributed.instanceID+".rlstate"), buf.Bytes())
+	err = h.storage.Store(ctx, path.Join(storagePrefix, h.Distributed.instanceID+".rlstate"), buf.Bytes())
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (h Handler) syncDistributedWrite(ctx context.Context) error {
 
 // syncDistributedRead loads all rate limiter states from other instances.
 func (h Handler) syncDistributedRead(ctx context.Context) error {
-	instanceFiles, err := h.storage.List(storagePrefix, false)
+	instanceFiles, err := h.storage.List(ctx, storagePrefix, false)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func (h Handler) syncDistributedRead(ctx context.Context) error {
 			continue
 		}
 
-		encoded, err := h.storage.Load(instanceFile)
+		encoded, err := h.storage.Load(ctx, instanceFile)
 		if err != nil {
 			h.logger.Error("unable to load distributed rate limiter state",
 				zap.String("key", instanceFile),

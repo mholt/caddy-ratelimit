@@ -69,7 +69,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.ArgErr()
 						}
 						if zone.Window != 0 {
-							return d.Errf("zone window already specified: %s", zone.Window)
+							return d.Errf("zone window already specified: %v", zone.Window)
 						}
 						window, err := caddy.ParseDuration(d.Val())
 						if err != nil {
@@ -82,7 +82,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.ArgErr()
 						}
 						if zone.MaxEvents != 0 {
-							return d.Errf("zone max events already specified: %s", zone.MaxEvents)
+							return d.Errf("zone max events already specified: %v", zone.MaxEvents)
 						}
 						maxEvents, err := strconv.Atoi(d.Val())
 						if err != nil {
@@ -110,7 +110,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.ArgErr()
 						}
 						if h.Distributed.ReadInterval != 0 {
-							return d.Errf("read interval already specified: %s", h.Distributed.ReadInterval)
+							return d.Errf("read interval already specified: %v", h.Distributed.ReadInterval)
 						}
 						interval, err := caddy.ParseDuration(d.Val())
 						if err != nil {
@@ -123,7 +123,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.ArgErr()
 						}
 						if h.Distributed.WriteInterval != 0 {
-							return d.Errf("write interval already specified: %s", h.Distributed.WriteInterval)
+							return d.Errf("write interval already specified: %v", h.Distributed.WriteInterval)
 						}
 						interval, err := caddy.ParseDuration(d.Val())
 						if err != nil {
@@ -153,7 +153,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				if h.Jitter != 0 {
-					return d.Errf("jitter already specified: %s", h.Jitter)
+					return d.Errf("jitter already specified: %v", h.Jitter)
 				}
 				jitter, err := strconv.ParseFloat(d.Val(), 64)
 				if err != nil {
@@ -166,7 +166,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				if h.SweepInterval != 0 {
-					return d.Errf("sweep interval already specified: %s", h.SweepInterval)
+					return d.Errf("sweep interval already specified: %v", h.SweepInterval)
 				}
 				interval, err := caddy.ParseDuration(d.Val())
 				if err != nil {
