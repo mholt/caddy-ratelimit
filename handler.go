@@ -6,6 +6,7 @@ import (
 	"fmt"
 	weakrand "math/rand"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -50,9 +51,10 @@ type Handler struct {
 	// the global or default storage configuration will be used.
 	StorageRaw json.RawMessage `json:"storage,omitempty" caddy:"namespace=caddy.storage inline_key=module"`
 
-	storage certmagic.Storage
-	random  *weakrand.Rand
-	logger  *zap.Logger
+	rateLimits []*RateLimit
+	storage    certmagic.Storage
+	random     *weakrand.Rand
+	logger     *zap.Logger
 }
 
 // CaddyModule returns the Caddy module information.
@@ -107,12 +109,20 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		go h.syncDistributed(ctx)
 	}
 
+	// provision each rate limit and put them in a slice so we can sort them
 	for name, rl := range h.RateLimits {
+		rl.zoneName = name
 		err := rl.provision(ctx, name)
 		if err != nil {
 			return fmt.Errorf("setting up rate limit %s: %v", name, err)
 		}
+		h.rateLimits = append(h.rateLimits, rl)
 	}
+
+	// sort by tightest rate limit to most permissive (issue #10)
+	sort.Slice(h.rateLimits, func(i, j int) bool {
+		return h.rateLimits[i].permissiveness() > h.rateLimits[j].permissiveness()
+	})
 
 	if h.Jitter < 0 {
 		return fmt.Errorf("jitter must be at least zero")
@@ -132,7 +142,8 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
 
-	for zoneName, rl := range h.RateLimits {
+	// iterate the slice, not the map, so the order is deterministic
+	for _, rl := range h.rateLimits {
 		// ignore rate limit if request doesn't qualify
 		if !rl.matcherSets.AnyMatch(r) {
 			continue
@@ -159,16 +170,16 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 		if h.Distributed == nil {
 			// internal rate limiter only
 			if dur := limiter.When(); dur > 0 {
-				return h.rateLimitExceeded(w, repl, zoneName, dur)
+				return h.rateLimitExceeded(w, repl, rl.zoneName, dur)
 			}
 		} else {
 			// distributed rate limiting; add last known state of other instances
-			if err := h.distributedRateLimiting(w, repl, limiter, key, zoneName); err != nil {
+			if err := h.distributedRateLimiting(w, repl, limiter, key, rl.zoneName); err != nil {
 				return err
 			}
 		}
-
 	}
+
 	return next.ServeHTTP(w, r)
 }
 
