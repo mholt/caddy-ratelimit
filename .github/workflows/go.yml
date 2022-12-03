@@ -1,0 +1,76 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build-test-check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Default is true, cancels jobs for other platforms in the matrix if one fails
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+        go-version: [ "1.18" ]
+
+        include:
+          - os: ubuntu-latest
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_linux_amd64.tar.gz"
+            name: "xcaddy"
+            pathInArchive: "xcaddy"
+
+          - os: "macos-latest"
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_mac_amd64.tar.gz"
+            name: "xcaddy"
+            pathInArchive: "xcaddy"
+
+          - os: "windows-latest"
+            urlTemplate: "https://github.com/caddyserver/xcaddy/releases/download/{{version}}/xcaddy_{{rawVersion}}_windows_amd64.zip"
+            name: "xcaddy.exe"
+            pathInArchive: "xcaddy.exe"
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        check-latest: true
+        cache: true
+        go-version: ${{ matrix.go-version }}
+
+    - name: Set up xcaddy
+      uses: engineerd/configurator@v0.0.8
+      with:
+        name: ${{ matrix.name }}
+        pathInArchive: ${{ matrix.pathInArchive }}
+        fromGitHubReleases: "true"
+        repo: "caddyserver/xcaddy"
+        version: "latest"
+        urlTemplate: ${{ matrix.urlTemplate }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build
+      run: |
+        xcaddy build master --output ${{ runner.temp }}/caddy --with github.com/mholt/caddy-ratelimit=./
+        # smoking test
+        echo ''
+        echo '########'
+        echo '# caddy list-modules'
+        ${{ runner.temp }}/caddy list-modules
+        echo '########'
+        echo ''
+        echo '########'
+        echo '# caddy build-info'
+        ${{ runner.temp }}/caddy build-info
+        echo '########'
+
+    - name: Test
+      run: |
+        go test -v ./...
