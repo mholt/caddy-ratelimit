@@ -206,7 +206,7 @@ func (h *Handler) rateLimitExceeded(w http.ResponseWriter, repl *caddy.Replacer,
 	// make some information about this rate limit available
 	repl.Set("http.rate_limit.exceeded.name", zoneName)
 
-	totalRateLimitedRequestsCount.With(prometheus.Labels{"zone": zoneName})
+	totalRateLimitedRequestsCount.With(prometheus.Labels{"zone": zoneName}).Inc()
 
 	return caddyhttp.Error(http.StatusTooManyRequests, nil)
 }
