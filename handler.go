@@ -14,6 +14,8 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/caddyserver/certmagic"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.uber.org/zap"
 )
 
@@ -183,6 +185,14 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 	return next.ServeHTTP(w, r)
 }
 
+var (
+	totalRateLimitedRequestsCount = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "caddy",
+		Name:      "http_ratelimit_request_rejected_total",
+		Help:      "Counter of requests rejected by rate limiting.",
+	}, []string{"zone"})
+)
+
 func (h *Handler) rateLimitExceeded(w http.ResponseWriter, repl *caddy.Replacer, zoneName string, wait time.Duration) error {
 	// add jitter, if configured
 	if h.random != nil {
@@ -195,6 +205,8 @@ func (h *Handler) rateLimitExceeded(w http.ResponseWriter, repl *caddy.Replacer,
 
 	// make some information about this rate limit available
 	repl.Set("http.rate_limit.exceeded.name", zoneName)
+
+	totalRateLimitedRequestsCount.With(prometheus.Labels{"zone": zoneName})
 
 	return caddyhttp.Error(http.StatusTooManyRequests, nil)
 }
