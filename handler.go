@@ -188,7 +188,8 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 var (
 	totalRateLimitedRequestsCount = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "caddy",
-		Name:      "http_ratelimit_request_rejected_total",
+		Subsystem: "http",
+		Name:      "request_ratelimit_rejected_total",
 		Help:      "Counter of requests rejected by rate limiting.",
 	}, []string{"zone"})
 )
