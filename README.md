@@ -81,14 +81,14 @@ This is an HTTP handler module, so it can be used wherever `http.handlers` modul
 			"window": "",
 			"max_events": 0
 		},
-		"distributed": {
-			"write_interval": "",
-			"read_interval": ""
-		},
 		"storage": {},
 		"jitter": 0.0,
 		"sweep_interval": ""
 	}
+	"distributed": {
+		"write_interval": "",
+		"read_interval": ""
+	},
 }
 ```
 
