@@ -83,7 +83,7 @@ func (h Handler) syncDistributed(ctx context.Context) {
 func (h Handler) syncDistributedWrite(ctx context.Context) error {
 	state := rlState{
 		Timestamp: now(),
-		Zones:     make(map[string]map[string]int),
+		Zones:     make(map[string]map[string]rlStateValue),
 	}
 
 	// iterate all rate limit zones
@@ -91,7 +91,7 @@ func (h Handler) syncDistributedWrite(ctx context.Context) error {
 		zoneNameStr := zoneName.(string)
 		zoneLimiters := value.(*sync.Map)
 
-		state.Zones[zoneNameStr] = make(map[string]int)
+		state.Zones[zoneNameStr] = make(map[string]rlStateValue)
 
 		// iterate all limiters within zone
 		zoneLimiters.Range(func(key, value interface{}) bool {
@@ -100,8 +100,10 @@ func (h Handler) syncDistributedWrite(ctx context.Context) error {
 			}
 			rl := value.(*ringBufferRateLimiter)
 
-			eventsInWindow := rl.Count(state.Timestamp)
-			state.Zones[zoneNameStr][key.(string)] = eventsInWindow
+			state.Zones[zoneNameStr][key.(string)] = rlStateValue{
+				Count:       rl.Count(state.Timestamp),
+				OldestEvent: rl.OldestEvent(),
+			}
 
 			return true
 		})
@@ -178,6 +180,7 @@ func (h Handler) distributedRateLimiting(w http.ResponseWriter, repl *caddy.Repl
 	window := limiter.Window()
 
 	var totalCount int
+	oldestEvent := limiter.OldestEvent()
 
 	h.Distributed.otherStatesMu.RLock()
 	defer h.Distributed.otherStatesMu.RUnlock()
@@ -191,11 +194,14 @@ func (h Handler) distributedRateLimiting(w http.ResponseWriter, repl *caddy.Repl
 		// if instance has this zone, add last known limiter count
 		if zone, ok := otherInstanceState.Zones[zoneName]; ok {
 			// TODO: could probably skew the numbers here based on timestamp and window... perhaps try to predict a better updated count
-			totalCount += zone[rlKey]
+			totalCount += zone[rlKey].Count
+			if zone[rlKey].OldestEvent.Before(oldestEvent) {
+				oldestEvent = zone[rlKey].OldestEvent
+			}
 
 			// no point in counting more if we're already over
 			if totalCount >= maxAllowed {
-				return h.rateLimitExceeded(w, repl, zoneName, 0) // TODO: how do we calculate a good wait duration?
+				return h.rateLimitExceeded(w, repl, zoneName, time.Until(oldestEvent.Add(window)))
 			}
 		}
 	}
@@ -213,16 +219,24 @@ func (h Handler) distributedRateLimiting(w http.ResponseWriter, repl *caddy.Repl
 	limiter.mu.Unlock()
 
 	// otherwise, it appears limit has been exceeded
-	return h.rateLimitExceeded(w, repl, zoneName, 0) // TODO: how do we calculate a good wait duration?
+	return h.rateLimitExceeded(w, repl, zoneName, time.Until(oldestEvent.Add(window)))
+}
+
+type rlStateValue struct {
+	// Count of events within window
+	Count int
+	// Time at which the oldest event in the limiter occurred
+	OldestEvent time.Time
 }
 
 type rlState struct {
 	// When these values were recorded.
 	Timestamp time.Time
 
-	// Map of zone name to map of all rate limiters in that
-	// zone by key to the number of events within window.
-	Zones map[string]map[string]int
+	// Map of zone name to map of all rate limiters in that zone by key to the
+	// number of events within window and time at which the oldest event
+	// occurred.
+	Zones map[string]map[string]rlStateValue
 }
 
 var gobBufPool = sync.Pool{

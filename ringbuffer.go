@@ -62,6 +62,14 @@ func (r *ringBufferRateLimiter) When() time.Duration {
 	return time.Until(r.ring[r.cursor].Add(r.window))
 }
 
+// OldestEvent returns the time at which the oldest recorded event current in
+// the ring buffer occurred.
+func (r *ringBufferRateLimiter) OldestEvent() time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ring[r.cursor]
+}
+
 // allowed returns true if the event is allowed to happen right now.
 // It does not wait. If the event is allowed, a reservation is made.
 // It is NOT safe for concurrent use, so it must be called inside a
