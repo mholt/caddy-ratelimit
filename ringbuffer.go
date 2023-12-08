@@ -59,7 +59,7 @@ func (r *ringBufferRateLimiter) When() time.Duration {
 	if r.allowed() {
 		return 0
 	}
-	return time.Until(r.ring[r.cursor].Add(r.window))
+	return r.ring[r.cursor].Add(r.window).Sub(now())
 }
 
 // OldestEvent returns the time at which the oldest recorded event current in
@@ -78,7 +78,7 @@ func (r *ringBufferRateLimiter) allowed() bool {
 	if len(r.ring) == 0 {
 		return false
 	}
-	if time.Since(r.ring[r.cursor]) > r.window {
+	if now().Sub(r.ring[r.cursor]) > r.window {
 		r.reserve()
 		return true
 	}
