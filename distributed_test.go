@@ -17,10 +17,12 @@ package caddyrl
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddytest"
 	"github.com/caddyserver/certmagic"
 	"github.com/google/uuid"
@@ -30,6 +32,12 @@ func TestDistributed(t *testing.T) {
 	initTime()
 	window := 60
 	maxEvents := 10
+
+	// Make sure AppDataDir exists, because otherwise the caddytest.Tester won't
+	// be able to generate an instance ID
+	if err := os.MkdirAll(caddy.AppDataDir(), 0700); err != nil {
+		t.Fatalf("failed to create app data dir %s: %s", caddy.AppDataDir(), err)
+	}
 
 	testCases := []struct {
 		name               string
