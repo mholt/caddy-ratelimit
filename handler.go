@@ -210,7 +210,9 @@ func (h *Handler) rateLimitExceeded(w http.ResponseWriter, repl *caddy.Replacer,
 	// make some information about this rate limit available
 	repl.Set("http.rate_limit.exceeded.name", zoneName)
 
-	return caddyhttp.Error(http.StatusTooManyRequests, nil)
+	w.WriteHeader(http.StatusTooManyRequests)
+
+	return nil
 }
 
 // Cleanup cleans up the handler.
