@@ -125,7 +125,6 @@ func TestDistributed(t *testing.T) {
 
 			// For Windows, escape \ in storage path.
 			storageDir = strings.ReplaceAll(storageDir, `\`, `\\`)
-			fmt.Printf("storage path: %s", storageDir)
 
 			// Run a caddytest.Tester that uses the same storage we just wrote to, so it
 			// will treat the generated state as a peer to sync from.
