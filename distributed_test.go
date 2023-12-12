@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -122,6 +123,8 @@ func TestDistributed(t *testing.T) {
 				t.Fatalf("failed to write state to storage: %s", err)
 			}
 
+			// For Windows, escape \ in storage path.
+			storageDir = strings.ReplaceAll(storageDir, `\`, `\\`)
 			fmt.Printf("storage path: %s", storageDir)
 
 			// Run a caddytest.Tester that uses the same storage we just wrote to, so it
