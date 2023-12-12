@@ -31,7 +31,7 @@ func initTime() {
 	}
 }
 
-func setTime(seconds int) {
+func advanceTime(seconds int) {
 	now = func() time.Time {
 		return time.Unix(referenceTime+int64(seconds), 0)
 	}
@@ -104,13 +104,13 @@ func TestRateLimits(t *testing.T) {
 
 	// After advancing time by half the window, the retry-after value should
 	// change accordingly
-	setTime(window / 2)
+	advanceTime(window / 2)
 
 	assert429Response(t, tester, int64(window/2))
 
 	// Advance time beyond the window where the events occurred. We should now
 	// be able to make requests again.
-	setTime(window)
+	advanceTime(window)
 
 	tester.AssertGetResponse("http://localhost:8080", 200, "")
 }
