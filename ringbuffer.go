@@ -62,14 +62,6 @@ func (r *ringBufferRateLimiter) When() time.Duration {
 	return r.ring[r.cursor].Add(r.window).Sub(now())
 }
 
-// OldestEvent returns the time at which the oldest recorded event current in
-// the ring buffer occurred.
-func (r *ringBufferRateLimiter) OldestEvent() time.Time {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.ring[r.cursor]
-}
-
 // allowed returns true if the event is allowed to happen right now.
 // It does not wait. If the event is allowed, a reservation is made.
 // It is NOT safe for concurrent use, so it must be called inside a
@@ -179,8 +171,10 @@ func (r *ringBufferRateLimiter) SetWindow(window time.Duration) {
 	r.mu.Unlock()
 }
 
-// Count counts how many events are in the window from the reference time.
-func (r *ringBufferRateLimiter) Count(ref time.Time) int {
+// Count counts how many events are in the window from the reference time and
+// returns that value and the oldest event in the buffer (the zero value of
+// time.Time if there are no events in the window).
+func (r *ringBufferRateLimiter) Count(ref time.Time) (int, time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.countUnsynced(ref)
@@ -189,7 +183,8 @@ func (r *ringBufferRateLimiter) Count(ref time.Time) int {
 // countUnsycned counts how many events are in the window from the reference time.
 // It is NOT safe to use without a lock on r.mu.
 // TODO: this is currently O(n) but could probably become O(log n) if we switch to some weird, custom binary search modulo ring length around the cursor.
-func (r *ringBufferRateLimiter) countUnsynced(ref time.Time) int {
+func (r *ringBufferRateLimiter) countUnsynced(ref time.Time) (int, time.Time) {
+	var zeroTime time.Time
 	beginningOfWindow := ref.Add(-r.window)
 
 	// This loop is a little gnarly, I know. We start at one before the cursor because that's
@@ -204,12 +199,16 @@ func (r *ringBufferRateLimiter) countUnsynced(ref time.Time) int {
 		// modulus the ring length to wrap around if necessary
 		i := (r.cursor + (len(r.ring) - eventsInWindow - 1)) % len(r.ring)
 		if r.ring[i].Before(beginningOfWindow) {
-			return eventsInWindow
+			if eventsInWindow == 0 {
+				return eventsInWindow, zeroTime
+			} else {
+				return eventsInWindow, r.ring[(i+1)%len(r.ring)]
+			}
 		}
 	}
 
 	// if we looped the entire ring, all events are within the window
-	return len(r.ring)
+	return len(r.ring), r.ring[r.cursor]
 }
 
 // Current time function, to be substituted by tests
