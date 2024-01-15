@@ -12,6 +12,8 @@ This module implements both internal and distributed HTTP rate limiting. Request
 ## Features
 
 - Multiple rate limit zones
+	- Static or dynamic
+	- Can be based on request host, header, remote IP, client IP, etc.
 - Sliding window algorithm
 - Scalable ring buffer implementation
 	- Buffer pooling
