@@ -5,7 +5,8 @@ go 1.21
 require (
 	github.com/caddyserver/caddy/v2 v2.7.6
 	github.com/caddyserver/certmagic v0.20.0
-	go.uber.org/zap v1.26.0
+	github.com/google/uuid v1.3.1
+	go.uber.org/zap v1.27.0
 )
 
 require (
@@ -48,7 +49,6 @@ require (
 	github.com/google/go-tpm v0.9.0 // indirect
 	github.com/google/go-tspi v0.3.0 // indirect
 	github.com/google/pprof v0.0.0-20210720184732-4bb14d4b1be1 // indirect
-	github.com/google/uuid v1.3.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.18.0 // indirect
 	github.com/huandu/xstrings v1.3.3 // indirect
 	github.com/imdario/mergo v0.3.12 // indirect
