@@ -30,16 +30,12 @@ type ringBufferRateLimiter struct {
 	cursor int         // always points to the oldest timestamp
 }
 
-// initialize sets up the rate limiter if it isn't already, allowing maxEvents
+// newRingBufferRateLimiter sets up a new rate limiter, allowing maxEvents
 // in a sliding window of size window. If maxEvents is 0, no events are
 // allowed. If window is 0, all events are allowed. It panics if maxEvents or
-// window are less than zero. This method is idempotent.
-func (r *ringBufferRateLimiter) initialize(maxEvents int, window time.Duration) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.window != 0 || r.ring != nil {
-		return
-	}
+// window are less than zero.
+func newRingBufferRateLimiter(maxEvents int, window time.Duration) *ringBufferRateLimiter {
+	r := new(ringBufferRateLimiter)
 	if maxEvents < 0 {
 		panic("maxEvents cannot be less than zero")
 	}
@@ -48,6 +44,7 @@ func (r *ringBufferRateLimiter) initialize(maxEvents int, window time.Duration) 
 	}
 	r.window = window
 	r.ring = make([]time.Time, maxEvents) // TODO: we can probably pool these
+	return r
 }
 
 // When returns the duration before the next allowable event; it does not block.

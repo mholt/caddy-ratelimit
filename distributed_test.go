@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -96,8 +95,7 @@ func TestDistributed(t *testing.T) {
 			if err != nil {
 				t.Fatal("failed to parse duration")
 			}
-			var simulatedPeer ringBufferRateLimiter
-			simulatedPeer.initialize(maxEvents, parsedDuration)
+			simulatedPeer := newRingBufferRateLimiter(maxEvents, parsedDuration)
 
 			for i := 0; i < testCase.peerRequests; i++ {
 				if when := simulatedPeer.When(); when != 0 {
@@ -105,13 +103,13 @@ func TestDistributed(t *testing.T) {
 				}
 			}
 
-			zoneLimiters := new(sync.Map)
-			zoneLimiters.Store("static", &simulatedPeer)
+			zoneLimiters := newRateLimiterMap()
+			zoneLimiters.limiters["static"] = simulatedPeer
 
 			rlState := rlState{
 				Timestamp: testCase.peerStateTimeStamp,
 				Zones: map[string]map[string]rlStateValue{
-					zone: rlStateForZone(zoneLimiters, now()),
+					zone: zoneLimiters.rlStateForZone(now()),
 				},
 			}
 
@@ -133,6 +131,13 @@ func TestDistributed(t *testing.T) {
 	"storage": {
 		"module": "file_system",
 		"root": "%s"
+	},
+	"logging": {
+		"logs": {
+			"default": {
+				"level": "DEBUG"
+			}
+		}
 	},
 	"apps": {
 		"http": {
