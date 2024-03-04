@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/caddyserver/caddy/v2 v2.7.6
 	github.com/caddyserver/certmagic v0.20.0
-	github.com/google/uuid v1.3.1
+	github.com/google/uuid v1.6.0
 	go.uber.org/zap v1.27.0
 )
 
