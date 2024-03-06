@@ -189,7 +189,7 @@ func (h Handler) syncDistributedRead(ctx context.Context) error {
 // distributedRateLimiting enforces limiter (keyed by rlKey) in consideration of all other instances in the cluster.
 // If the limit is exceeded, the response is prepared and the relevant error is returned. Otherwise, a reservation
 // is made in the local limiter and no error is returned.
-func (h Handler) distributedRateLimiting(w http.ResponseWriter, repl *caddy.Replacer, limiter *ringBufferRateLimiter, rlKey, zoneName string) error {
+func (h Handler) distributedRateLimiting(w http.ResponseWriter, r *http.Request, repl *caddy.Replacer, limiter *ringBufferRateLimiter, rlKey, zoneName string) error {
 	maxAllowed := limiter.MaxEvents()
 	window := limiter.Window()
 
@@ -215,7 +215,7 @@ func (h Handler) distributedRateLimiting(w http.ResponseWriter, repl *caddy.Repl
 
 			// no point in counting more if we're already over
 			if totalCount >= maxAllowed {
-				return h.rateLimitExceeded(w, repl, zoneName, oldestEvent.Add(window).Sub(now()))
+				return h.rateLimitExceeded(w, r, repl, zoneName, oldestEvent.Add(window).Sub(now()))
 			}
 		}
 	}
@@ -237,7 +237,7 @@ func (h Handler) distributedRateLimiting(w http.ResponseWriter, repl *caddy.Repl
 	limiter.mu.Unlock()
 
 	// otherwise, it appears limit has been exceeded
-	return h.rateLimitExceeded(w, repl, zoneName, oldestEvent.Add(window).Sub(now()))
+	return h.rateLimitExceeded(w, r, repl, zoneName, oldestEvent.Add(window).Sub(now()))
 }
 
 type rlStateValue struct {
