@@ -23,9 +23,8 @@ func TestCount(t *testing.T) {
 	initTime()
 
 	var zeroTime time.Time
-	var rb ringBufferRateLimiter
 	bufSize := 10
-	rb.initialize(bufSize, time.Duration(bufSize)*time.Second)
+	rb := newRingBufferRateLimiter(bufSize, time.Duration(bufSize)*time.Second)
 	startTime := now()
 
 	count, oldest := rb.Count(now())
