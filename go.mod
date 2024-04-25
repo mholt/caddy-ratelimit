@@ -3,7 +3,7 @@ module github.com/mholt/caddy-ratelimit
 go 1.21
 
 require (
-	github.com/caddyserver/caddy/v2 v2.7.6
+	github.com/caddyserver/caddy/v2 v2.7.3
 	github.com/caddyserver/certmagic v0.20.0
 	github.com/google/uuid v1.6.0
 	go.uber.org/zap v1.27.0
@@ -34,6 +34,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/fxamacker/cbor/v2 v2.5.0 // indirect
+	github.com/go-chi/chi v4.1.2+incompatible // indirect
 	github.com/go-chi/chi/v5 v5.0.10 // indirect
 	github.com/go-kit/kit v0.10.0 // indirect
 	github.com/go-logfmt/logfmt v0.5.1 // indirect
