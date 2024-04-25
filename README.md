@@ -31,7 +31,6 @@ This module implements both internal and distributed HTTP rate limiting. Request
 
 **PLANNED:**
 
-- Ability to define matchers in zones with Caddyfile
 - Smoothed estimates of distributed rate limiting
 - RL state persisted in storage for resuming after restarts
 - Admin API endpoints to inspect or modify rate limits
@@ -52,7 +51,7 @@ The `rate_limit` HTTP handler module lets you define rate limit zones, which hav
 
 A zone also has a key, which is different from its name. Keys associate 1:1 with rate limiters, implemented as ring buffers; i.e. a new key implies allocating a new ring buffer. Keys can be static (no placeholders; same for every request), in which case only one rate limiter will be allocated for the whole zone. Or, keys can contain placeholders which can be different for every request, in which case a zone may contain numerous rate limiters depending on the result of expanding the key.
 
-A zone is synomymous with a rate limit, being a number of events per duration. Both `window` and `max_events` are required configuration for a zone. For example: 100 events every 1 minute. Because this module uses a sliding window algorithm, it works by looking back `<window>` duration and seeing if `<max_events>` events have already happened in that timeframe. If so, an internal HTTP 429 error is generated and returned, invoking error routes which you have defined (if any). Otherwise, the a reservation is made and the event is allowed through.
+A zone is synonymous with a rate limit, being a number of events per duration. Both `window` and `max_events` are required configuration for a zone. For example: 100 events every 1 minute. Because this module uses a sliding window algorithm, it works by looking back `<window>` duration and seeing if `<max_events>` events have already happened in that timeframe. If so, an internal HTTP 429 error is generated and returned, invoking error routes which you have defined (if any). Otherwise, a reservation is made and the event is allowed through.
 
 Each zone may optionally filter the requests it applies to by specifying [request matchers](https://caddyserver.com/docs/modules/http#servers/routes/match).
 
@@ -121,6 +120,9 @@ Here is the syntax. See the JSON config section above for explanations about eac
 ```
 rate_limit {
 	zone <name> {
+		match {
+			<matchers>
+		}
 		key    <string>
 		window <duration>
 		events <max_events>
@@ -197,8 +199,6 @@ We also enable distributed rate limiting. By deploying this config to two or mor
 
 ### Caddyfile example
 
-(The Caddyfile does not yet support defining matchers for RL zones, so that has been omitted from this example.)
-
 ```
 {
 	order rate_limit before basicauth
@@ -209,6 +209,9 @@ We also enable distributed rate limiting. By deploying this config to two or mor
 rate_limit {
 	distributed
 	zone static_example {
+		match {
+			method GET
+		}
 		key    static
 		events 100
 		window 1m
