@@ -102,6 +102,13 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.Errf("invalid max events integer '%s': %v", d.Val(), err)
 						}
 						zone.MaxEvents = maxEvents
+					case "match":
+						matcherSet, err := caddyhttp.ParseCaddyfileNestedMatcherSet(d)
+						if err != nil {
+							return d.Errf("failed to parse match: %w", err)
+						}
+
+						zone.MatcherSetsRaw = append(zone.MatcherSetsRaw, matcherSet)
 					}
 				}
 				if zone.Window == 0 || zone.MaxEvents == 0 {
