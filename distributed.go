@@ -46,6 +46,10 @@ type DistributedRateLimiting struct {
 	// Default: 5s
 	ReadInterval caddy.Duration `json:"read_interval,omitempty"`
 
+	// How long to wait before deleting stale states from other instances.
+	// Default: never
+	PurgeAge caddy.Duration `json:"purge_age,omitempty"`
+
 	instanceID string
 
 	otherStates   []rlState
@@ -150,6 +154,16 @@ func (h Handler) syncDistributedRead(ctx context.Context) error {
 			h.logger.Error("corrupted rate limiter state file",
 				zap.String("key", instanceFile),
 				zap.Error(err))
+			continue
+		}
+
+		if h.Distributed.PurgeAge != 0 && state.Timestamp.Before(now().Add(-time.Duration(h.Distributed.PurgeAge))) {
+			err = h.storage.Delete(ctx, instanceFile)
+			if err != nil {
+				h.logger.Error("cannot delete stale rate limiter state file",
+					zap.String("key", instanceFile),
+					zap.Error(err))
+			}
 			continue
 		}
 
