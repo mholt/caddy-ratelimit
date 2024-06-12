@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"testing"
 	"time"
@@ -26,18 +27,23 @@ import (
 	"github.com/caddyserver/caddy/v2/caddytest"
 	"github.com/caddyserver/certmagic"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
+
+func ensureAppDataDir(t *testing.T) {
+	// Make sure AppDataDir exists, because otherwise the caddytest.Tester won't
+	// be able to generate an instance ID
+	if err := os.MkdirAll(caddy.AppDataDir(), 0700); err != nil {
+		t.Fatalf("failed to create app data dir %s: %s", caddy.AppDataDir(), err)
+	}
+}
 
 func TestDistributed(t *testing.T) {
 	initTime()
 	window := 60
 	maxEvents := 10
 
-	// Make sure AppDataDir exists, because otherwise the caddytest.Tester won't
-	// be able to generate an instance ID
-	if err := os.MkdirAll(caddy.AppDataDir(), 0700); err != nil {
-		t.Fatalf("failed to create app data dir %s: %s", caddy.AppDataDir(), err)
-	}
+	ensureAppDataDir(t)
 
 	testCases := []struct {
 		name               string
@@ -85,7 +91,7 @@ func TestDistributed(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			storageDir := t.TempDir()
 			// Use a random UUID as the zone so that rate limits from multiple test runs
-			// collide with each other
+			// don't collide with each other
 			zone := uuid.New().String()
 
 			// To simulate a peer in a rate limiting cluster, constuct a
@@ -188,5 +194,70 @@ func TestDistributed(t *testing.T) {
 				tester.AssertGetResponse("http://localhost:8080", 200, "")
 			}
 		})
+	}
+}
+
+func TestPurgeDistributedState(t *testing.T) {
+	initTime()
+	ensureAppDataDir(t)
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		t.Fatalf("failed to create logger: %s", err)
+	}
+
+	storageDir := t.TempDir()
+	storage := certmagic.FileStorage{
+		Path: storageDir,
+	}
+
+	// Seed the storage directory with a rate limit state file from another instance.
+	otherRlState := rlState{
+		Timestamp: now(),
+		Zones:     make(map[string]map[string]rlStateValue, 0),
+	}
+	if err := writeRateLimitState(context.Background(), otherRlState, "12345678-1234-1234-1234-123456789abc", &storage); err != nil {
+		t.Fatalf("failed to write state to storage: %s", err)
+	}
+
+	handler := Handler{
+		Distributed: &DistributedRateLimiting{
+			instanceID: "99999999-9999-9999-9999-999999999999",
+			PurgeAge:   caddy.Duration(time.Hour),
+		},
+		storage: &storage,
+		logger:  logger,
+	}
+
+	// Perform initial read, and confirm it picks up the existing state file.
+	err = handler.syncDistributedRead(context.Background())
+	if err != nil {
+		t.Fatalf("reading distributed state failed: %s", err)
+	}
+	if len(handler.Distributed.otherStates) != 1 {
+		t.Fatalf("did not read other states correctly: %v", handler.Distributed.otherStates)
+	}
+	dirEntries, err := os.ReadDir(path.Join(storageDir, "rate_limit", "instances"))
+	if err != nil {
+		t.Fatalf("couldn't list directory: %s", err)
+	}
+	if len(dirEntries) != 1 {
+		t.Fatalf("wrong number of files present in storage directory: %v", dirEntries)
+	}
+
+	// Advance time and sync again. The old state file should be deleted now.
+	advanceTime(2 * 60 * 60)
+	err = handler.syncDistributedRead(context.Background())
+	if err != nil {
+		t.Fatalf("reading distributed state failed: %s", err)
+	}
+	if len(handler.Distributed.otherStates) != 0 {
+		t.Fatalf("expected other state to be deleted: %v", handler.Distributed.otherStates)
+	}
+	dirEntries, err = os.ReadDir(path.Join(storageDir, "rate_limit", "instances"))
+	if err != nil {
+		t.Fatalf("couldn't list directory: %s", err)
+	}
+	if len(dirEntries) != 0 {
+		t.Fatalf("storage directory was not empty: %v", dirEntries)
 	}
 }
