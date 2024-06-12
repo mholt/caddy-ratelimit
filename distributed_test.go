@@ -158,7 +158,8 @@ func TestDistributed(t *testing.T) {
 								},
 								"distributed": {
 									"write_interval": "3600s",
-									"read_interval": "3600s"
+									"read_interval": "3600s",
+									"purge_age": "7200s"
 								}
 							},
 							{

@@ -88,7 +88,8 @@ This is an HTTP handler module, so it can be used wherever `http.handlers` modul
 	}
 	"distributed": {
 		"write_interval": "",
-		"read_interval": ""
+		"read_interval": "",
+		"purge_age": ""
 	},
 }
 ```
@@ -130,6 +131,7 @@ rate_limit {
 	distributed {
 		read_interval  <duration>
 		write_interval <duration>
+		purge_age <duration>
 	}
 	storage <module...>
 	jitter  <percent>

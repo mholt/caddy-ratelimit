@@ -46,6 +46,7 @@ func parseCaddyfile(helper httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, e
 //	    distributed {
 //	        read_interval  <duration>
 //	        write_interval <duration>
+//	        purge_age <duration>
 //	    }
 //	    storage <module...>
 //	    jitter  <percent>
@@ -150,6 +151,19 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.Errf("invalid write interval '%s': %v", d.Val(), err)
 						}
 						h.Distributed.WriteInterval = caddy.Duration(interval)
+
+					case "purge_age":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if h.Distributed.PurgeAge != 0 {
+							return d.Errf("purge age already specified: %v", h.Distributed.PurgeAge)
+						}
+						age, err := caddy.ParseDuration(d.Val())
+						if err != nil {
+							return d.Errf("invalid purge age '%s': %v", d.Val(), err)
+						}
+						h.Distributed.PurgeAge = caddy.Duration(age)
 					}
 				}
 
