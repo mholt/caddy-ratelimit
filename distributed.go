@@ -160,7 +160,7 @@ func (h Handler) syncDistributedRead(ctx context.Context) error {
 		if h.Distributed.PurgeAge != 0 && state.Timestamp.Before(now().Add(-time.Duration(h.Distributed.PurgeAge))) {
 			err = h.storage.Delete(ctx, instanceFile)
 			if err != nil {
-				h.logger.Error("cannot delete rate limiter state file",
+				h.logger.Error("cannot delete stale rate limiter state file",
 					zap.String("key", instanceFile),
 					zap.Error(err))
 			}
