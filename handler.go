@@ -170,7 +170,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 		if h.Distributed == nil {
 			// internal rate limiter only
 			if dur := limiter.When(); dur > 0 {
-				return h.rateLimitExceeded(w, r, repl, rl.zoneName, dur)
+				return h.rateLimitExceeded(w, r, repl, rl.zoneName, key, dur)
 			}
 		} else {
 			// distributed rate limiting; add last known state of other instances
@@ -183,7 +183,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 	return next.ServeHTTP(w, r)
 }
 
-func (h *Handler) rateLimitExceeded(w http.ResponseWriter, r *http.Request, repl *caddy.Replacer, zoneName string, wait time.Duration) error {
+func (h *Handler) rateLimitExceeded(w http.ResponseWriter, r *http.Request, repl *caddy.Replacer, zoneName string, key string, wait time.Duration) error {
 	// add jitter, if configured
 	if h.random != nil {
 		jitter := h.randomFloatInRange(0, float64(wait)*h.Jitter)
@@ -200,6 +200,7 @@ func (h *Handler) rateLimitExceeded(w http.ResponseWriter, r *http.Request, repl
 	}
 	h.logger.Info("rate limit exceeded",
 		zap.String("zone", zoneName),
+		zap.String("key", key),
 		zap.Duration("wait", wait),
 		zap.String("remote_ip", remoteIP),
 	)
