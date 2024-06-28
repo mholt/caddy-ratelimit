@@ -206,7 +206,7 @@ func (h Handler) distributedRateLimiting(w http.ResponseWriter, r *http.Request,
 
 			// no point in counting more if we're already over
 			if totalCount >= maxAllowed {
-				return h.rateLimitExceeded(w, r, repl, zoneName, oldestEvent.Add(window).Sub(now()))
+				return h.rateLimitExceeded(w, r, repl, zoneName, rlKey, oldestEvent.Add(window).Sub(now()))
 			}
 		}
 	}
@@ -228,7 +228,7 @@ func (h Handler) distributedRateLimiting(w http.ResponseWriter, r *http.Request,
 	limiter.mu.Unlock()
 
 	// otherwise, it appears limit has been exceeded
-	return h.rateLimitExceeded(w, r, repl, zoneName, oldestEvent.Add(window).Sub(now()))
+	return h.rateLimitExceeded(w, r, repl, zoneName, rlKey, oldestEvent.Add(window).Sub(now()))
 }
 
 type rlStateValue struct {
