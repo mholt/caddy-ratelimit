@@ -82,10 +82,11 @@ This is an HTTP handler module, so it can be used wherever `http.handlers` modul
 			"window": "",
 			"max_events": 0
 		},
-		"storage": {},
 		"jitter": 0.0,
 		"sweep_interval": ""
-	}
+	},
+	"log_key": false,
+	"storage": {},
 	"distributed": {
 		"write_interval": "",
 		"read_interval": "",
@@ -98,6 +99,8 @@ This is an HTTP handler module, so it can be used wherever `http.handlers` modul
 All fields are optional, but to be useful, you'll need to define at least one zone, and a zone requires `window` and `max_events` to be set. Keys can be static (no placeholders) or dynamic (with placeholders). Matchers can be used to filter requests that apply to a zone. Replace `<name>` with your RL zone's name.
 
 To enable distributed RL, set `distributed` to a non-null object. The default read and write intervals are 5s, but you should tune these for your individual deployments.
+
+To log the key when a rate limit is hit, set `log_key` to `true`.
 
 Storage customizes the storage module that is used. Like normal Caddy convention, all instances with the same storage configuration are considered to be part of a cluster.
 
@@ -133,6 +136,7 @@ rate_limit {
 		write_interval <duration>
 		purge_age <duration>
 	}
+	log_key <bool>
 	storage <module...>
 	jitter  <percent>
 	sweep_interval <duration>
