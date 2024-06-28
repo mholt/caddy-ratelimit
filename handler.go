@@ -203,20 +203,20 @@ func (h *Handler) rateLimitExceeded(w http.ResponseWriter, r *http.Request, repl
 		remoteIP = r.RemoteAddr // assume there was no port, I guess
 	}
 
+	// Create logger with common fields
+	logger := h.logger.With(
+		zap.String("zone", zoneName),
+		zap.Duration("wait", wait),
+		zap.String("remote_ip", remoteIP),
+	)
+
+	// Conditionally add the key field
 	if h.LogKey {
-		h.logger.Info("rate limit exceeded",
-			zap.String("zone", zoneName),
-			zap.String("key", key),
-			zap.Duration("wait", wait),
-			zap.String("remote_ip", remoteIP),
-		)
-	} else {
-		h.logger.Info("rate limit exceeded",
-			zap.String("zone", zoneName),
-			zap.Duration("wait", wait),
-			zap.String("remote_ip", remoteIP),
-		)
+		logger = logger.With(zap.String("key", key))
 	}
+
+	// Log the rate limit exceeded message
+	logger.Info("rate limit exceeded")
 
 	// make some information about this rate limit available
 	repl.Set("http.rate_limit.exceeded.name", zoneName)
