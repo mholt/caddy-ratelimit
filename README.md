@@ -120,6 +120,23 @@ However, if this default order does not suit your needs, you can still change th
 }
 ```
 
+If the `rate_limit` directive is used within a [`route` block](https://caddyserver.com/docs/caddyfile/directives/route), it will follow the order specified by the route block, allowing for more flexible and complex configurations. For example:
+
+```
+route {
+	# Uncritical resource without rate limit
+	respond /ping "pong"
+
+	# Apply rate limit
+	rate_limit {
+		...
+	}
+
+	# Critical resources after rate limiting
+	...
+}
+```
+
 Here is the syntax. See the JSON config section above for explanations about each property:
 
 ```
