@@ -111,11 +111,29 @@ Sweep interval configures how often to scan for expired rate limiters. The defau
 
 ### Caddyfile config
 
-As with all non-standard HTTP handler modules, this directive is not known to the Caddyfile adapter and so it must be ["ordered"](https://caddyserver.com/docs/caddyfile/directives#directive-order) manually using global options unless it only appears within a [`route` block](https://caddyserver.com/docs/caddyfile/directives/route). This ordering usually works well, but you should use discretion:
+By default, the `rate_limit` directive is ordered before `basic_auth` in the Caddyfile. This simplifies configuration and removes the need for manual ordering in most cases. 
+However, if this default order does not suit your needs, you can still change the order using the [`order`](https://caddyserver.com/docs/caddyfile/directives#directive-order) global directive. For example:
 
 ```
 {
-	order rate_limit before basicauth
+	order rate_limit after basic_auth
+}
+```
+
+If the `rate_limit` directive is used within a [`route` block](https://caddyserver.com/docs/caddyfile/directives/route), it will follow the order specified by the route block, allowing for more flexible and complex configurations. For example:
+
+```
+route {
+	# Uncritical resource without rate limit
+	respond /ping "pong"
+
+	# Apply rate limit
+	rate_limit {
+		...
+	}
+
+	# Critical resources after rate limiting
+	...
 }
 ```
 
@@ -206,10 +224,6 @@ We also enable distributed rate limiting. By deploying this config to two or mor
 ### Caddyfile example
 
 ```
-{
-	order rate_limit before basicauth
-}
-
 :80
 
 rate_limit {

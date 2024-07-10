@@ -26,6 +26,7 @@ import (
 
 func init() {
 	httpcaddyfile.RegisterHandlerDirective("rate_limit", parseCaddyfile)
+	httpcaddyfile.RegisterDirectiveOrder("rate_limit", "before", "basic_auth")
 }
 
 // parseCaddyfile unmarshals tokens from h into a new Middleware.

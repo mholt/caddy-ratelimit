@@ -31,8 +31,6 @@ func TestCaddyfileRateLimits(t *testing.T) {
 		skip_install_trust
 		admin localhost:2999
 		http_port 8080
-
-		order rate_limit before basicauth
 	}
 
 	localhost:8080
