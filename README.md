@@ -154,7 +154,7 @@ rate_limit {
 		write_interval <duration>
 		purge_age <duration>
 	}
-	log_key <bool>
+	log_key
 	storage <module...>
 	jitter  <percent>
 	sweep_interval <duration>
@@ -205,7 +205,8 @@ We also enable distributed rate limiting. By deploying this config to two or mor
 											"max_events": 2
 										}
 									},
-									"distributed": {}
+									"distributed": {},
+									"log_key": true
 								},
 								{
 									"handler": "static_response",
@@ -241,6 +242,7 @@ rate_limit {
 		events 2
 		window 5s
 	}
+	log_key
 }
 
 respond "I'm behind the rate limiter!"
