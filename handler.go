@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
+	"github.com/caddyserver/caddy/v2/modules/caddyevents"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/caddyserver/certmagic"
 	"go.uber.org/zap"
@@ -73,6 +74,8 @@ type Handler struct {
 	storage    certmagic.Storage
 	random     *weakrand.Rand
 	logger     *zap.Logger
+	ctx        caddy.Context
+	events     *caddyevents.App
 }
 
 // CaddyModule returns the Caddy module information.
@@ -85,7 +88,14 @@ func (Handler) CaddyModule() caddy.ModuleInfo {
 
 // Provision sets up the handler.
 func (h *Handler) Provision(ctx caddy.Context) error {
+	h.ctx = ctx
 	h.logger = ctx.Logger(h)
+
+	eventsAppIface, err := ctx.App("events")
+	if err != nil {
+		return fmt.Errorf("getting events app: %v", err)
+	}
+	h.events = eventsAppIface.(*caddyevents.App)
 
 	if len(h.StorageRaw) > 0 {
 		val, err := ctx.LoadModule(h, "StorageRaw")
@@ -217,6 +227,13 @@ func (h *Handler) rateLimitExceeded(w http.ResponseWriter, r *http.Request, repl
 
 	// Log the rate limit exceeded message
 	logger.Info("rate limit exceeded")
+
+	// also emit event so user can configure custom responses to rate limit violations
+	h.events.Emit(h.ctx, "rate_limit_exceeded", map[string]any{
+		"zone":      zoneName,
+		"wait":      wait,
+		"remote_ip": remoteIP,
+	})
 
 	// make some information about this rate limit available
 	repl.Set("http.rate_limit.exceeded.name", zoneName)
