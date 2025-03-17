@@ -214,6 +214,9 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Errf("invalid sweep interval '%s': %v", d.Val(), err)
 				}
 				h.SweepInterval = caddy.Duration(interval)
+
+			default:
+				return d.Errf("unrecognized subdirective '%s'", d.Val())
 			}
 		}
 	}
