@@ -43,12 +43,16 @@ func parseCaddyfile(helper httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, e
 //	        key    <string>
 //	        window <duration>
 //	        events <max_events>
+//	        match {
+//	        	<matchers>
+//	        }
 //	    }
 //	    distributed {
 //	        read_interval  <duration>
 //	        write_interval <duration>
 //	        purge_age <duration>
 //	    }
+//	    log_key
 //	    storage <module...>
 //	    jitter  <percent>
 //	    sweep_interval <duration>
@@ -104,6 +108,7 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.Errf("invalid max events integer '%s': %v", d.Val(), err)
 						}
 						zone.MaxEvents = maxEvents
+
 					case "match":
 						matcherSet, err := caddyhttp.ParseCaddyfileNestedMatcherSet(d)
 						if err != nil {
@@ -111,6 +116,9 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 						}
 
 						zone.MatcherSetsRaw = append(zone.MatcherSetsRaw, matcherSet)
+
+					default:
+						return d.Errf("unrecognized subdirective '%s'", d.Val())
 					}
 				}
 				if zone.Window == 0 || zone.MaxEvents == 0 {
@@ -165,6 +173,9 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.Errf("invalid purge age '%s': %v", d.Val(), err)
 						}
 						h.Distributed.PurgeAge = caddy.Duration(age)
+
+					default:
+						return d.Errf("unrecognized subdirective '%s'", d.Val())
 					}
 				}
 
