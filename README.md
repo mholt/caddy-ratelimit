@@ -81,10 +81,10 @@ This is an HTTP handler module, so it can be used wherever `http.handlers` modul
 			"key": "",
 			"window": "",
 			"max_events": 0
-		},
-		"jitter": 0.0,
-		"sweep_interval": ""
+		}
 	},
+	"jitter": 0.0,
+	"sweep_interval": "",
 	"log_key": false,
 	"storage": {},
 	"distributed": {
