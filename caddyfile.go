@@ -40,9 +40,11 @@ func parseCaddyfile(helper httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, e
 //
 //	rate_limit {
 //	    zone <name> {
-//	        key    <string>
-//	        window <duration>
-//	        events <max_events>
+//	        key         <string>
+//	        window      <duration>
+//	        events      <max_events>
+//	        ipv4_prefix <bits>
+//	        ipv6_prefix <bits>
 //	        match {
 //	        	<matchers>
 //	        }
@@ -109,6 +111,32 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 							return d.Errf("invalid max events integer '%s': %v", d.Val(), err)
 						}
 						zone.MaxEvents = maxEvents
+
+					case "ipv4_prefix":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if zone.IPv4Prefix != 0 {
+							return d.Errf("zone ipv4_prefix already specified: %v", zone.IPv4Prefix)
+						}
+						prefix, err := strconv.Atoi(d.Val())
+						if err != nil {
+							return d.Errf("invalid ipv4_prefix integer '%s': %v", d.Val(), err)
+						}
+						zone.IPv4Prefix = prefix
+
+					case "ipv6_prefix":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if zone.IPv6Prefix != 0 {
+							return d.Errf("zone ipv6_prefix already specified: %v", zone.IPv6Prefix)
+						}
+						prefix, err := strconv.Atoi(d.Val())
+						if err != nil {
+							return d.Errf("invalid ipv6_prefix integer '%s': %v", d.Val(), err)
+						}
+						zone.IPv6Prefix = prefix
 
 					case "match":
 						matcherSet, err := caddyhttp.ParseCaddyfileNestedMatcherSet(d)
