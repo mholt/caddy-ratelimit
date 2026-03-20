@@ -16,10 +16,13 @@ type rateLimitMetrics struct {
 	config        *prometheus.CounterVec
 }
 
-var (
-	// Global metrics instance
-	globalMetrics *rateLimitMetrics
-)
+// globalMetrics is a package-level singleton that holds the registered Prometheus
+// collectors. It must be a singleton because Prometheus does not allow the same
+// collector to be registered twice in a registry. During Caddy config reloads
+// each Handler is re-provisioned, but the metrics registry persists, so
+// registerMetrics only sets this on the first successful registration and all
+// subsequent Handler instances share the same collectors via this reference.
+var globalMetrics *rateLimitMetrics
 
 // initializeMetrics creates and registers all rate limit metrics with Caddy's internal registry
 func initializeMetrics(registry prometheus.Registerer) (*rateLimitMetrics, error) {
