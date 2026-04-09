@@ -100,9 +100,10 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		if err := registerMetrics(registry); err != nil {
 			h.logger.Warn("failed to register rate limit metrics", zap.Error(err))
 			h.metrics.enabled = false
+		} else {
+			h.logger.Info("rate limit metrics enabled")
 		}
 	} else {
-		h.logger.Warn("metrics registry not available, disabling metrics")
 		h.metrics.enabled = false
 	}
 
