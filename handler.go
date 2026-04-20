@@ -139,6 +139,9 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 
 	// provision each rate limit and put them in a slice so we can sort them
 	for name, rl := range h.RateLimits {
+		if h.Distributed != nil && rl.MaxConcurrent > 0 {
+			h.logger.Warn("distributed rate limiting is not supported for concurrency limits; skipping distributed syncing for this zone", zap.String("zone", name))
+		}
 		rl.zoneName = name
 		err := rl.provision(ctx, name)
 		if err != nil {
@@ -170,6 +173,13 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
 
+	var toRelease []*concurrencyLimiter
+	defer func() {
+		for _, cl := range toRelease {
+			cl.Release()
+		}
+	}()
+
 	// iterate the slice, not the map, so the order is deterministic
 	for _, rl := range h.rateLimits {
 		// ignore rate limit if request doesn't qualify
@@ -179,18 +189,27 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 
 		// make key for the individual rate limiter in this zone
 		key := repl.ReplaceAll(rl.Key, "")
-		limiter := rl.limitersMap.getOrInsert(key, rl.MaxEvents, time.Duration(rl.Window))
+		limiter := rl.limitersMap.getOrInsert(key, rl)
 
-		if h.Distributed == nil {
-			// internal rate limiter only
-			if dur := limiter.When(); dur > 0 {
-				return h.rateLimitExceeded(w, r, repl, rl.zoneName, key, dur)
+		switch l := limiter.(type) {
+		case *ringBufferRateLimiter:
+			if h.Distributed == nil {
+				// internal rate limiter only
+				if dur := l.When(); dur > 0 {
+					return h.rateLimitExceeded(w, r, repl, rl.zoneName, key, dur)
+				}
+			} else {
+				// distributed rate limiting; add last known state of other instances
+				if err := h.distributedRateLimiting(w, r, repl, l, key, rl.zoneName); err != nil {
+					return err
+				}
 			}
-		} else {
-			// distributed rate limiting; add last known state of other instances
-			if err := h.distributedRateLimiting(w, r, repl, limiter, key, rl.zoneName); err != nil {
-				return err
+
+		case *concurrencyLimiter:
+			if !l.Acquire() {
+				return h.rateLimitExceeded(w, r, repl, rl.zoneName, key, 0)
 			}
+			toRelease = append(toRelease, l)
 		}
 	}
 
@@ -199,13 +218,15 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 
 func (h *Handler) rateLimitExceeded(w http.ResponseWriter, r *http.Request, repl *caddy.Replacer, zoneName string, key string, wait time.Duration) error {
 	// add jitter, if configured
-	if h.random != nil {
+	if h.random != nil && wait > 0 {
 		jitter := h.randomFloatInRange(0, float64(wait)*h.Jitter)
 		wait += time.Duration(jitter)
 	}
 
-	// add 0.5 to ceil() instead of round() which FormatFloat() does automatically
-	w.Header().Set("Retry-After", strconv.FormatFloat(wait.Seconds()+0.5, 'f', 0, 64))
+	if wait > 0 {
+		// add 0.5 to ceil() instead of round() which FormatFloat() does automatically
+		w.Header().Set("Retry-After", strconv.FormatFloat(wait.Seconds()+0.5, 'f', 0, 64))
+	}
 
 	// emit log about exceeding rate limit (see #37)
 	remoteIP, _, err := net.SplitHostPort(r.RemoteAddr)
