@@ -13,6 +13,7 @@ This module implements both internal and distributed HTTP rate limiting. Request
 	- Static or dynamic
 	- Can be based on request host, header, remote IP, client IP, etc.
 - Sliding window algorithm
+- Atomic counter implementation for concurrency limiting
 - Scalable ring buffer implementation
 	- Buffer pooling
 	- Goroutines: 1 (to clean up old buffers)
@@ -45,11 +46,13 @@ $ xcaddy build --with github.com/mholt/caddy-ratelimit
 
 ## Overview
 
-The `rate_limit` HTTP handler module lets you define rate limit zones, which have a unique name of your choosing. A rate limit zone is 1:1 with a rate limit (i.e. events per duration).
+The `rate_limit` HTTP handler module lets you define rate limit zones, which have a unique name of your choosing. A rate limit zone is 1:1 with a rate limit (i.e. events per duration) or a concurrency limit (i.e. maximum concurrent requests).
 
-A zone also has a key, which is different from its name. Keys associate 1:1 with rate limiters, implemented as ring buffers; i.e. a new key implies allocating a new ring buffer. Keys can be static (no placeholders; same for every request), in which case only one rate limiter will be allocated for the whole zone. Or, keys can contain placeholders which can be different for every request, in which case a zone may contain numerous rate limiters depending on the result of expanding the key.
+A zone also has a key, which is different from its name. Keys associate 1:1 with rate limiters, implemented as ring buffers (or atomic counters for concurrency limits); i.e. a new key implies allocating a new rate limiter. Keys can be static (no placeholders; same for every request), in which case only one rate limiter will be allocated for the whole zone. Or, keys can contain placeholders which can be different for every request, in which case a zone may contain numerous rate limiters depending on the result of expanding the key.
 
 A zone is synonymous with a rate limit, being a number of events per duration. Both `window` and `max_events` are required configuration for a zone. For example: 100 events every 1 minute. Because this module uses a sliding window algorithm, it works by looking back `<window>` duration and seeing if `<max_events>` events have already happened in that timeframe. If so, an internal HTTP 429 error is generated and returned, invoking error routes which you have defined (if any). Otherwise, a reservation is made and the event is allowed through.
+
+Alternatively, a zone can be a concurrency limit. In this case, `max_concurrent` is required instead. It limits the number of in-flight requests for a given key. When the limit is reached, subsequent requests for that key are rejected until one of the in-flight requests completes. (Note: Distributed rate limiting is currently only supported for windowed rate limits, not for concurrency limits.)
 
 Each zone may optionally filter the requests it applies to by specifying [request matchers](https://caddyserver.com/docs/modules/http#servers/routes/match).
 
@@ -78,7 +81,8 @@ This is an HTTP handler module, so it can be used wherever `http.handlers` modul
 			"match": [],
 			"key": "",
 			"window": "",
-			"max_events": 0
+			"max_events": 0,
+			"max_concurrent": 0
 		}
 	},
 	"jitter": 0.0,
@@ -89,14 +93,14 @@ This is an HTTP handler module, so it can be used wherever `http.handlers` modul
 		"write_interval": "",
 		"read_interval": "",
 		"purge_age": ""
-	},
+	}
 }
 ```
 
 
-All fields are optional, but to be useful, you'll need to define at least one zone, and a zone requires `window` and `max_events` to be set. Keys can be static (no placeholders) or dynamic (with placeholders). Matchers can be used to filter requests that apply to a zone. Replace `<name>` with your RL zone's name.
+All fields are optional, but to be useful, you'll need to define at least one zone. A zone requires either `window` and `max_events` for rate limiting, OR `max_concurrent` for concurrency limiting. Keys can be static (no placeholders) or dynamic (with placeholders). Matchers can be used to filter requests that apply to a zone. Replace `<name>` with your RL zone's name.
 
-To enable distributed RL, set `distributed` to a non-null object. The default read and write intervals are 5s, but you should tune these for your individual deployments.
+To enable distributed RL, set `distributed` to a non-null object. The default read and write intervals are 5s, but you should tune these for your individual deployments. (Note: Distributed rate limiting is currently only supported for windowed rate limits, not for concurrency limits.)
 
 To log the key when a rate limit is hit, set `log_key` to `true`.
 
@@ -146,6 +150,7 @@ rate_limit {
 		key    <string>
 		window <duration>
 		events <max_events>
+		max_concurrent <int>
 	}
 	distributed {
 		read_interval  <duration>
@@ -244,4 +249,17 @@ rate_limit {
 }
 
 respond "I'm behind the rate limiter!"
+```
+
+### Concurrency limiting example
+
+This example limits each client IP to 5 concurrent requests.
+
+```
+rate_limit {
+	zone concurrency_example {
+		key            {remote_host}
+		max_concurrent 5
+	}
+}
 ```

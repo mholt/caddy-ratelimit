@@ -43,6 +43,7 @@ func parseCaddyfile(helper httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, e
 //	        key    <string>
 //	        window <duration>
 //	        events <max_events>
+//	        max_concurrent <int>
 //	        match {
 //	        	<matchers>
 //	        }
@@ -109,6 +110,19 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 						}
 						zone.MaxEvents = maxEvents
 
+					case "max_concurrent":
+						if !d.NextArg() {
+							return d.ArgErr()
+						}
+						if zone.MaxConcurrent != 0 {
+							return d.Errf("zone max concurrent already specified: %v", zone.MaxConcurrent)
+						}
+						maxConcurrent, err := strconv.Atoi(d.Val())
+						if err != nil {
+							return d.Errf("invalid max concurrent integer '%s': %v", d.Val(), err)
+						}
+						zone.MaxConcurrent = maxConcurrent
+
 					case "match":
 						matcherSet, err := caddyhttp.ParseCaddyfileNestedMatcherSet(d)
 						if err != nil {
@@ -121,8 +135,12 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 						return d.Errf("unrecognized subdirective '%s'", d.Val())
 					}
 				}
-				if zone.Window == 0 || zone.MaxEvents == 0 {
-					return d.Err("a rate limit zone requires both a window and maximum events")
+
+				if zone.MaxConcurrent > 0 && (zone.Window > 0 || zone.MaxEvents > 0) {
+					return d.Err("a rate limit zone cannot have both max_concurrent and window/events")
+				}
+				if zone.MaxConcurrent == 0 && (zone.Window == 0 || zone.MaxEvents == 0) {
+					return d.Err("a rate limit zone requires either window and events, or max_concurrent")
 				}
 
 				if h.RateLimits == nil {

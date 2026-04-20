@@ -23,6 +23,10 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
+// idleLimiterTTL defines how long a concurrency limiter can remain in memory
+// with 0 active requests before it is garbage collected by the sweep() routine.
+const idleLimiterTTL = 5 * time.Minute
+
 // RateLimit describes an HTTP rate limit zone.
 type RateLimit struct {
 	// Request matchers, which defines the class of requests that are in the RL zone.
@@ -42,6 +46,9 @@ type RateLimit struct {
 	// Duration of the sliding window.
 	Window caddy.Duration `json:"window,omitempty"`
 
+	// Maximum number of concurrent requests allowed.
+	MaxConcurrent int `json:"max_concurrent,omitempty"`
+
 	matcherSets caddyhttp.MatcherSets
 
 	zoneName string
@@ -50,10 +57,13 @@ type RateLimit struct {
 }
 
 func (rl *RateLimit) provision(ctx caddy.Context, name string) error {
-	if rl.Window <= 0 {
+	if rl.MaxConcurrent > 0 && (rl.MaxEvents > 0 || rl.Window > 0) {
+		return fmt.Errorf("cannot use both max_concurrent and window/max_events")
+	}
+	if rl.MaxConcurrent == 0 && rl.Window <= 0 {
 		return fmt.Errorf("window must be greater than zero")
 	}
-	if rl.MaxEvents < 0 {
+	if rl.MaxConcurrent == 0 && rl.MaxEvents < 0 {
 		return fmt.Errorf("max_events must be at least zero")
 	}
 
@@ -73,49 +83,91 @@ func (rl *RateLimit) provision(ctx caddy.Context, name string) error {
 	if val, loaded := rateLimits.LoadOrStore(name, rl.limitersMap); loaded {
 		rl.limitersMap = val.(*rateLimitersMap)
 	}
-	rl.limitersMap.updateAll(rl.MaxEvents, time.Duration(rl.Window))
+	rl.limitersMap.updateAll(rl)
 
 	return nil
 }
 
 func (rl *RateLimit) permissiveness() float64 {
+	if rl.MaxConcurrent > 0 {
+		// To make concurrency limits comparable to rate limits for sorting,
+		// we treat MaxConcurrent as a rate of events per second.
+		return float64(rl.MaxConcurrent) / float64(time.Second)
+	}
 	return float64(rl.MaxEvents) / float64(rl.Window)
 }
 
+// RateLimiter is a marker interface for rate limiters.
+// It will exclusively be either *ringBufferRateLimiter or *concurrencyLimiter.
+type RateLimiter interface {
+	isRateLimiter()
+}
+
 type rateLimitersMap struct {
-	limiters   map[string]*ringBufferRateLimiter
+	limiters   map[string]RateLimiter
 	limitersMu sync.Mutex
 }
 
 func newRateLimiterMap() *rateLimitersMap {
 	var rlm rateLimitersMap
-	rlm.limiters = make(map[string]*ringBufferRateLimiter)
+	rlm.limiters = make(map[string]RateLimiter)
 	return &rlm
 }
 
 // getOrInsert returns an existing rate limiter from the map, or inserts a new
 // one with the desired settings and returns it.
-func (rlm *rateLimitersMap) getOrInsert(key string, maxEvents int, window time.Duration) *ringBufferRateLimiter {
+func (rlm *rateLimitersMap) getOrInsert(key string, rl *RateLimit) RateLimiter {
 	rlm.limitersMu.Lock()
 	defer rlm.limitersMu.Unlock()
 
 	rateLimiter, ok := rlm.limiters[key]
-	if !ok {
-		newRateLimiter := newRingBufferRateLimiter(maxEvents, window)
-		rlm.limiters[key] = newRateLimiter
-		return newRateLimiter
+	if ok {
+		// Verify the existing limiter matches the current config type
+		switch l := rateLimiter.(type) {
+		case *concurrencyLimiter:
+			if rl.MaxConcurrent > 0 {
+				// Prevent sweep() from deleting this while we are between getOrInsert and Acquire
+				l.lastAccess.Store(now().UnixNano())
+				return rateLimiter
+			}
+		case *ringBufferRateLimiter:
+			if rl.MaxConcurrent == 0 {
+				return rateLimiter
+			}
+		}
+		// Type mismatch (likely due to config reload). We fall through to recreate it.
 	}
+
+	if rl.MaxConcurrent > 0 {
+		rateLimiter = newConcurrencyLimiter(int64(rl.MaxConcurrent))
+	} else {
+		rateLimiter = newRingBufferRateLimiter(rl.MaxEvents, time.Duration(rl.Window))
+	}
+	rlm.limiters[key] = rateLimiter
 	return rateLimiter
 }
 
 // updateAll updates existing rate limiters with new settings.
-func (rlm *rateLimitersMap) updateAll(maxEvents int, window time.Duration) {
+func (rlm *rateLimitersMap) updateAll(rl *RateLimit) {
 	rlm.limitersMu.Lock()
 	defer rlm.limitersMu.Unlock()
 
-	for _, limiter := range rlm.limiters {
-		limiter.SetMaxEvents(maxEvents)
-		limiter.SetWindow(time.Duration(window))
+	for key, limiter := range rlm.limiters {
+		switch l := limiter.(type) {
+		case *concurrencyLimiter:
+			if rl.MaxConcurrent > 0 {
+				l.limit.Store(int64(rl.MaxConcurrent))
+			} else {
+				delete(rlm.limiters, key)
+			}
+		case *ringBufferRateLimiter:
+			if rl.MaxConcurrent == 0 {
+				l.SetMaxEvents(rl.MaxEvents)
+				l.SetWindow(time.Duration(rl.Window))
+			} else {
+				delete(rlm.limiters, key)
+			}
+		}
 	}
 }
 
@@ -124,31 +176,43 @@ func (rlm *rateLimitersMap) sweep() {
 	rlm.limitersMu.Lock()
 	defer rlm.limitersMu.Unlock()
 
-	for key, rl := range rlm.limiters {
-		func(rl *ringBufferRateLimiter) {
-			rl.mu.Lock()
-			defer rl.mu.Unlock()
+	for key, limiter := range rlm.limiters {
+		switch l := limiter.(type) {
+		case *ringBufferRateLimiter:
+			func(rl *ringBufferRateLimiter) {
+				rl.mu.Lock()
+				defer rl.mu.Unlock()
 
-			// no point in keeping a ring buffer of size 0 around
-			if len(rl.ring) == 0 {
-				delete(rlm.limiters, key)
-				return
-			}
+				// no point in keeping a ring buffer of size 0 around
+				if len(rl.ring) == 0 {
+					delete(rlm.limiters, key)
+					return
+				}
 
-			// get newest event in ring (should come right before oldest)
-			cursorNewest := rl.cursor - 1
-			if cursorNewest < 0 {
-				cursorNewest = len(rl.ring) - 1
-			}
-			newest := rl.ring[cursorNewest]
-			window := rl.window
+				// get newest event in ring (should come right before oldest)
+				cursorNewest := rl.cursor - 1
+				if cursorNewest < 0 {
+					cursorNewest = len(rl.ring) - 1
+				}
+				newest := rl.ring[cursorNewest]
+				window := rl.window
 
-			// if newest event in memory is outside the window,
-			// the entire ring has expired and can be forgotten
-			if newest.Add(window).Before(now()) {
-				delete(rlm.limiters, key)
+				// if newest event in memory is outside the window,
+				// the entire ring has expired and can be forgotten
+				if newest.Add(window).Before(now()) {
+					delete(rlm.limiters, key)
+				}
+			}(l)
+		case *concurrencyLimiter:
+			// for concurrency limiters, we can remove them if they are idle
+			// and have no active requests.
+			if l.current.Load() == 0 {
+				lastAccess := time.Unix(0, l.lastAccess.Load())
+				if now().Sub(lastAccess) > idleLimiterTTL {
+					delete(rlm.limiters, key)
+				}
 			}
-		}(rl)
+		}
 	}
 }
 
@@ -158,11 +222,18 @@ func (rlm *rateLimitersMap) rlStateForZone(timestamp time.Time) map[string]rlSta
 
 	rlm.limitersMu.Lock()
 	defer rlm.limitersMu.Unlock()
-	for key, rl := range rlm.limiters {
-		count, oldestEvent := rl.Count(timestamp)
-		state[key] = rlStateValue{
-			Count:       count,
-			OldestEvent: oldestEvent,
+	for key, limiter := range rlm.limiters {
+		switch l := limiter.(type) {
+		case *ringBufferRateLimiter:
+			count, oldestEvent := l.Count(timestamp)
+			state[key] = rlStateValue{
+				Count:       count,
+				OldestEvent: oldestEvent,
+			}
+		case *concurrencyLimiter:
+			state[key] = rlStateValue{
+				Count: int(l.current.Load()),
+			}
 		}
 	}
 

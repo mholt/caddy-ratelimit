@@ -30,6 +30,8 @@ type ringBufferRateLimiter struct {
 	cursor int         // always points to the oldest timestamp
 }
 
+func (*ringBufferRateLimiter) isRateLimiter() {}
+
 // newRingBufferRateLimiter sets up a new rate limiter, allowing maxEvents
 // in a sliding window of size window. If maxEvents is 0, no events are
 // allowed. If window is 0, all events are allowed. It panics if maxEvents or

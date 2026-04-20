@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddytest"
 )
 
@@ -72,4 +73,55 @@ func TestCaddyfileRateLimits(t *testing.T) {
 	advanceTime(window)
 
 	tester.AssertGetResponse("http://localhost:8080", 200, "")
+}
+
+func TestCaddyfileParseErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		caddyfile string
+		wantErr   bool
+	}{
+		{
+			name: "valid max_concurrent",
+			caddyfile: `rate_limit {
+				zone test {
+					key static
+					max_concurrent 5
+				}
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "mixing max_concurrent and window",
+			caddyfile: `rate_limit {
+				zone test {
+					key static
+					window 10s
+					events 5
+					max_concurrent 5
+				}
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "missing max_concurrent and window",
+			caddyfile: `rate_limit {
+				zone test {
+					key static
+				}
+			}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := caddyfile.NewTestDispenser(tt.caddyfile)
+			h := new(Handler)
+			err := h.UnmarshalCaddyfile(d)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("UnmarshalCaddyfile() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }
