@@ -53,6 +53,7 @@ func parseCaddyfile(helper httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, e
 //	        purge_age <duration>
 //	    }
 //	    log_key
+//	    disable_metrics
 //	    storage <module...>
 //	    jitter  <percent>
 //	    sweep_interval <duration>
@@ -184,6 +185,12 @@ func (h *Handler) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				h.LogKey = true
+
+			case "disable_metrics":
+				if d.NextArg() {
+					return d.ArgErr()
+				}
+				h.DisableMetrics = true
 
 			case "storage":
 				if !d.NextArg() {

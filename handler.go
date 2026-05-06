@@ -70,6 +70,10 @@ type Handler struct {
 	// Defaults to `false` because keys can contain sensitive information.
 	LogKey bool `json:"log_key,omitempty"`
 
+	// DisableMetrics, if true, disables Prometheus metrics for this rate_limit
+	// handler even when Caddy global metrics are enabled.
+	DisableMetrics bool `json:"disable_metrics,omitempty"`
+
 	rateLimits []*RateLimit
 	storage    certmagic.Storage
 	random     *weakrand.Rand
@@ -96,7 +100,9 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 	h.metrics = newMetricsCollector()
 
 	// Register metrics with Caddy's internal metrics registry
-	if registry := ctx.GetMetricsRegistry(); registry != nil {
+	if h.DisableMetrics {
+		h.metrics.enabled = false
+	} else if registry := ctx.GetMetricsRegistry(); registry != nil {
 		if err := registerMetrics(registry); err != nil {
 			h.logger.Warn("failed to register rate limit metrics", zap.Error(err))
 			h.metrics.enabled = false

@@ -86,6 +86,7 @@ This is an HTTP handler module, so it can be used wherever `http.handlers` modul
 		"sweep_interval": ""
 	},
 	"log_key": false,
+	"disable_metrics": false,
 	"storage": {},
 	"distributed": {
 		"write_interval": "",
@@ -101,6 +102,8 @@ All fields are optional, but to be useful, you'll need to define at least one zo
 To enable distributed RL, set `distributed` to a non-null object. The default read and write intervals are 5s, but you should tune these for your individual deployments.
 
 To log the key when a rate limit is hit, set `log_key` to `true`.
+
+To disable Prometheus metrics for this handler even when Caddy global metrics are enabled, set `disable_metrics` to `true`. This is useful if you want to use Caddy's metrics but are not interested in the rate limit module's metrics and want to avoid unnecessary Prometheus storage usage.
 
 Storage customizes the storage module that is used. Like normal Caddy convention, all instances with the same storage configuration are considered to be part of a cluster.
 
@@ -155,6 +158,7 @@ rate_limit {
 		purge_age <duration>
 	}
 	log_key
+	disable_metrics
 	storage <module...>
 	jitter  <percent>
 	sweep_interval <duration>
