@@ -70,12 +70,17 @@ type Handler struct {
 	// Defaults to `false` because keys can contain sensitive information.
 	LogKey bool `json:"log_key,omitempty"`
 
+	// DisableMetrics, if true, disables Prometheus metrics for this rate_limit
+	// handler even when Caddy global metrics are enabled.
+	DisableMetrics bool `json:"disable_metrics,omitempty"`
+
 	rateLimits []*RateLimit
 	storage    certmagic.Storage
 	random     *weakrand.Rand
 	logger     *zap.Logger
 	ctx        caddy.Context
 	events     *caddyevents.App
+	metrics    *metricsCollector
 }
 
 // CaddyModule returns the Caddy module information.
@@ -90,6 +95,23 @@ func (Handler) CaddyModule() caddy.ModuleInfo {
 func (h *Handler) Provision(ctx caddy.Context) error {
 	h.ctx = ctx
 	h.logger = ctx.Logger(h)
+
+	// Initialize metrics collector
+	h.metrics = newMetricsCollector()
+
+	// Register metrics with Caddy's internal metrics registry
+	if h.DisableMetrics {
+		h.metrics.enabled = false
+	} else if registry := ctx.GetMetricsRegistry(); registry != nil {
+		if err := registerMetrics(registry); err != nil {
+			h.logger.Warn("failed to register rate limit metrics", zap.Error(err))
+			h.metrics.enabled = false
+		} else {
+			h.logger.Info("rate limit metrics enabled")
+		}
+	} else {
+		h.metrics.enabled = false
+	}
 
 	eventsAppIface, err := ctx.App("events")
 	if err != nil {
@@ -145,6 +167,9 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 			return fmt.Errorf("setting up rate limit %s: %v", name, err)
 		}
 		h.rateLimits = append(h.rateLimits, rl)
+
+		// Record configuration metrics
+		h.metrics.recordConfig(name, rl.MaxEvents, time.Duration(rl.Window))
 	}
 
 	// sort by tightest rate limit to most permissive (issue #10)
@@ -168,7 +193,11 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 }
 
 func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	startTime := time.Now()
 	repl := r.Context().Value(caddy.ReplacerCtxKey).(*caddy.Replacer)
+
+	var matchedZone bool
+	var lastZoneName, lastKey string
 
 	// iterate the slice, not the map, so the order is deterministic
 	for _, rl := range h.rateLimits {
@@ -177,21 +206,50 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhtt
 			continue
 		}
 
+		matchedZone = true
+		lastZoneName = rl.zoneName
+
 		// make key for the individual rate limiter in this zone
 		key := repl.ReplaceAll(rl.Key, "")
+		lastKey = key
 		limiter := rl.limitersMap.getOrInsert(key, rl.MaxEvents, time.Duration(rl.Window))
 
 		if h.Distributed == nil {
 			// internal rate limiter only
 			if dur := limiter.When(); dur > 0 {
+				// Record metrics for declined request
+				h.metrics.recordDeclinedRequest(rl.zoneName, key)
+				h.metrics.recordRequestPerKey(rl.zoneName, key)
+				h.metrics.recordProcessTimePerKey(time.Since(startTime), rl.zoneName, key)
 				return h.rateLimitExceeded(w, r, repl, rl.zoneName, key, dur)
 			}
 		} else {
 			// distributed rate limiting; add last known state of other instances
 			if err := h.distributedRateLimiting(w, r, repl, limiter, key, rl.zoneName); err != nil {
+				// Record metrics for declined request if it was a rate limit error
+				if caddyErr, ok := err.(caddyhttp.HandlerError); ok && caddyErr.StatusCode == http.StatusTooManyRequests {
+					h.metrics.recordDeclinedRequest(rl.zoneName, key)
+				}
+				h.metrics.recordRequestPerKey(rl.zoneName, key)
+				h.metrics.recordProcessTimePerKey(time.Since(startTime), rl.zoneName, key)
 				return err
 			}
 		}
+
+		// Update keys count for this zone
+		rl.limitersMap.limitersMu.Lock()
+		keysCount := len(rl.limitersMap.limiters)
+		rl.limitersMap.limitersMu.Unlock()
+		h.metrics.updateKeysCount(rl.zoneName, keysCount)
+	}
+
+	// Record request metrics - use per-key metrics if we matched a zone, otherwise use the general method
+	if matchedZone {
+		h.metrics.recordRequestPerKey(lastZoneName, lastKey)
+		h.metrics.recordProcessTimePerKey(time.Since(startTime), lastZoneName, lastKey)
+	} else {
+		h.metrics.recordRequest(false)
+		h.metrics.recordProcessTime(time.Since(startTime), false)
 	}
 
 	return next.ServeHTTP(w, r)
@@ -265,7 +323,20 @@ func (h Handler) sweepRateLimiters(ctx context.Context) {
 		select {
 		case <-cleanerTicker.C:
 			rateLimits.Range(func(key, value interface{}) bool {
-				value.(*rateLimitersMap).sweep()
+				zoneName := key.(string)
+				limitersMap := value.(*rateLimitersMap)
+
+				// Clean up expired rate limit states
+				limitersMap.sweep()
+
+				// Update keys count metrics if we have metrics enabled
+				if h.metrics != nil && h.metrics.enabled {
+					limitersMap.limitersMu.Lock()
+					keysCount := len(limitersMap.limiters)
+					limitersMap.limitersMu.Unlock()
+					h.metrics.updateKeysCount(zoneName, keysCount)
+				}
+
 				return true
 			})
 
