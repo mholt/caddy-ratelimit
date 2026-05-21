@@ -82,7 +82,7 @@ func initializeMetrics(registry prometheus.Registerer) (*rateLimitMetrics, error
 				Name:      "config",
 				Help:      "Shows configuration of the rate limiter module. Reported only once on bootstrap as configuration is not dynamically configurable.",
 			},
-			[]string{"zone", "max_events", "window"},
+			[]string{"zone", "max_events", "window", "ipv4_prefix", "ipv6_prefix"},
 		),
 	}
 
@@ -207,12 +207,14 @@ func (mc *metricsCollector) updateKeysCount(zone string, count int) {
 }
 
 // recordConfig records the configuration of a rate limit zone (called once during provision)
-func (mc *metricsCollector) recordConfig(zone string, maxEvents int, window time.Duration) {
+func (mc *metricsCollector) recordConfig(zone string, maxEvents int, window time.Duration, ipv4Prefix, ipv6Prefix int) {
 	if !mc.enabled || globalMetrics == nil {
 		return
 	}
 
 	globalMetrics.config.WithLabelValues(zone,
 		strconv.Itoa(maxEvents),
-		window.String()).Inc()
+		window.String(),
+		strconv.Itoa(ipv4Prefix),
+		strconv.Itoa(ipv6Prefix)).Inc()
 }

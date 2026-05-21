@@ -169,7 +169,7 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		h.rateLimits = append(h.rateLimits, rl)
 
 		// Record configuration metrics
-		h.metrics.recordConfig(name, rl.MaxEvents, time.Duration(rl.Window))
+		h.metrics.recordConfig(name, rl.MaxEvents, time.Duration(rl.Window), rl.IPv4Prefix, rl.IPv6Prefix)
 	}
 
 	// sort by tightest rate limit to most permissive (issue #10)
