@@ -42,6 +42,21 @@ type RateLimit struct {
 	// Duration of the sliding window.
 	Window caddy.Duration `json:"window,omitempty"`
 
+	// IPv4Prefix is the number of bits in the subnet mask to apply to IPv4
+	// addresses when grouping rate limit keys. For example, a value of 24
+	// will group all addresses in the same /24 subnet into one rate limit
+	// bucket. Default (0) means no grouping — each IPv4 address is treated
+	// individually.
+	IPv4Prefix int `json:"ipv4_prefix,omitempty"`
+
+	// IPv6Prefix is the number of bits in the subnet mask to apply to IPv6
+	// addresses when grouping rate limit keys. For example, a value of 64
+	// will group all addresses in the same /64 network into one rate limit
+	// bucket, preventing abuse from clients cycling through addresses within
+	// a prefix. Default (0) means no grouping — each IPv6 address is treated
+	// individually.
+	IPv6Prefix int `json:"ipv6_prefix,omitempty"`
+
 	matcherSets caddyhttp.MatcherSets
 
 	zoneName string
@@ -55,6 +70,12 @@ func (rl *RateLimit) provision(ctx caddy.Context, name string) error {
 	}
 	if rl.MaxEvents < 0 {
 		return fmt.Errorf("max_events must be at least zero")
+	}
+	if rl.IPv4Prefix < 0 || rl.IPv4Prefix > 32 {
+		return fmt.Errorf("ipv4_prefix must be between 0 and 32")
+	}
+	if rl.IPv6Prefix < 0 || rl.IPv6Prefix > 128 {
+		return fmt.Errorf("ipv6_prefix must be between 0 and 128")
 	}
 
 	if len(rl.MatcherSetsRaw) > 0 {

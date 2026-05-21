@@ -23,6 +23,59 @@ import (
 	"github.com/caddyserver/caddy/v2/caddytest"
 )
 
+func TestApplyNetworkPrefix(t *testing.T) {
+	tests := []struct {
+		name       string
+		key        string
+		ipv4Prefix int
+		ipv6Prefix int
+		expected   string
+	}{
+		// IPv6 with /64 prefix - different addresses in the same /64 produce the same key
+		{"ipv6 /64 full addr", "2001:db8:1234:5678:9abc:def0:1234:5678", 0, 64, "2001:db8:1234:5678::/64"},
+		{"ipv6 /64 all ones host", "2001:db8:1234:5678:ffff:ffff:ffff:ffff", 0, 64, "2001:db8:1234:5678::/64"},
+		{"ipv6 /64 short addr", "2001:db8:1234:5678::1", 0, 64, "2001:db8:1234:5678::/64"},
+
+		// IPv6 with other prefix lengths
+		{"ipv6 /48", "2001:db8:1234:5678::1", 0, 48, "2001:db8:1234::/48"},
+		{"ipv6 /128", "2001:db8:1234:5678::1", 0, 128, "2001:db8:1234:5678::1/128"},
+
+		// IPv4 with prefix configured
+		{"ipv4 /24", "192.168.1.100", 24, 0, "192.168.1.0/24"},
+		{"ipv4 /8", "10.0.0.50", 8, 0, "10.0.0.0/8"},
+		{"ipv4 /32", "172.16.5.4", 32, 0, "172.16.5.4/32"},
+
+		// Both prefixes configured - each applies to its own address family
+		{"ipv6 with both configured", "2001:db8::1", 24, 64, "2001:db8::/64"},
+		{"ipv4 with both configured", "192.168.1.100", 24, 64, "192.168.1.0/24"},
+
+		// Only IPv6 prefix configured - IPv4 addresses pass through unchanged
+		{"ipv4 unchanged when only ipv6 configured", "192.168.1.100", 0, 64, "192.168.1.100"},
+
+		// Only IPv4 prefix configured - IPv6 addresses pass through unchanged
+		{"ipv6 unchanged when only ipv4 configured", "2001:db8::1", 24, 0, "2001:db8::1"},
+
+		// No prefixes configured - everything passes through unchanged
+		{"ipv6 no prefix", "2001:db8::1", 0, 0, "2001:db8::1"},
+		{"ipv4 no prefix", "192.168.1.100", 0, 0, "192.168.1.100"},
+
+		// Non-IP keys always pass through unchanged
+		{"static key", "static", 0, 64, "static"},
+		{"placeholder key", "{http.request.uri}", 0, 64, "{http.request.uri}"},
+		{"empty key", "", 0, 64, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := applyNetworkPrefix(tt.key, tt.ipv4Prefix, tt.ipv6Prefix)
+			if result != tt.expected {
+				t.Errorf("applyNetworkPrefix(%q, %d, %d) = %q, want %q",
+					tt.key, tt.ipv4Prefix, tt.ipv6Prefix, result, tt.expected)
+			}
+		})
+	}
+}
+
 const referenceTime = 1000000
 
 func initTime() {

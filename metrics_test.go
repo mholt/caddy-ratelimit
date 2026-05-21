@@ -65,7 +65,7 @@ func TestMetrics(t *testing.T) {
 	}
 
 	// Test that configuration metrics are recorded
-	configMetric := testutil.ToFloat64(globalMetrics.config.WithLabelValues("test_zone", strconv.Itoa(maxEvents), fmt.Sprintf("%ds", window)))
+	configMetric := testutil.ToFloat64(globalMetrics.config.WithLabelValues("test_zone", strconv.Itoa(maxEvents), fmt.Sprintf("%ds", window), "0", "0"))
 	if configMetric == 0 {
 		t.Error("Expected configuration metric to be recorded")
 	}
