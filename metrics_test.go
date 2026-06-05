@@ -111,3 +111,39 @@ func TestMetrics(t *testing.T) {
 		t.Error("Expected per-key process time histogram to be created")
 	}
 }
+
+// TestMetricsReRegisterOnReload checks that after a reload (a fresh registry) the
+// collectors are still reported by /metrics, and keep their values rather than
+// resetting (#100).
+func TestMetricsReRegisterOnReload(t *testing.T) {
+	globalMetrics = nil
+
+	reg1 := prometheus.NewPedanticRegistry()
+	if err := registerMetrics(reg1); err != nil {
+		t.Fatalf("initial registration: %v", err)
+	}
+
+	mc := newMetricsCollector()
+	mc.recordDeclinedRequest("zoneA", "k1") // value 1, registered in reg1
+
+	// Reload: Caddy hands out a brand-new registry and points /metrics at it.
+	reg2 := prometheus.NewPedanticRegistry()
+	if err := registerMetrics(reg2); err != nil {
+		t.Fatalf("reload registration: %v", err)
+	}
+	mc.recordDeclinedRequest("zoneA", "k1") // value 2, still the same collectors
+
+	// The new registry must report the collectors (before the fix it had none).
+	got, err := testutil.GatherAndCount(reg2, "caddy_rate_limit_declined_requests_total")
+	if err != nil {
+		t.Fatalf("gathering reg2: %v", err)
+	}
+	if got != 2 { // zone aggregate + per-key series
+		t.Fatalf("expected 2 declined series in the post-reload registry, got %d", got)
+	}
+
+	// ...and the value carries across the reload instead of resetting.
+	if v := testutil.ToFloat64(globalMetrics.declinedTotal.WithLabelValues("zoneA", "k1")); v != 2 {
+		t.Errorf("expected per-key declined counter = 2 after reload, got %v", v)
+	}
+}
