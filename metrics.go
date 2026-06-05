@@ -1,7 +1,10 @@
 package caddyrl
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,16 +19,44 @@ type rateLimitMetrics struct {
 	config        *prometheus.CounterVec
 }
 
-// globalMetrics is a package-level singleton that holds the registered Prometheus
-// collectors. It must be a singleton because Prometheus does not allow the same
-// collector to be registered twice in a registry. During Caddy config reloads
-// each Handler is re-provisioned, but the metrics registry persists, so
-// registerMetrics only sets this on the first successful registration and all
-// subsequent Handler instances share the same collectors via this reference.
-var globalMetrics *rateLimitMetrics
+// globalMetrics holds the currently-active rate limit collectors.
+//
+// It is stored atomically because Caddy provisions a brand-new metrics registry
+// on every config reload (caddy.Context.GetMetricsRegistry returns a fresh
+// prometheus registry per context) and rebinds the admin /metrics endpoint to
+// it, while the previous config's in-flight request goroutines may still be
+// reading these collectors. A plain pointer set only once would both data-race
+// against those readers and keep pointing at collectors registered with the old,
+// orphaned registry — so /metrics, which serves the new registry, would report
+// no rate-limit activity after any reload. See issue #100.
+var globalMetrics atomic.Pointer[rateLimitMetrics]
 
-// initializeMetrics creates and registers all rate limit metrics with Caddy's internal registry
-func initializeMetrics(registry prometheus.Registerer) (*rateLimitMetrics, error) {
+// register registers c with reg, returning the already-registered collector of
+// the same definition when one exists. Caddy hands every rate_limit handler the
+// same registry within a single config (so sibling handlers register identical
+// collectors) and a fresh registry on each reload; Prometheus reports an existing
+// collector as an AlreadyRegisteredError carrying the ExistingCollector. Reusing
+// it ensures every handler — and the served /metrics endpoint — increments one
+// shared collector instead of an orphaned duplicate. See issue #100.
+func register[T prometheus.Collector](reg prometheus.Registerer, c T) (T, error) {
+	if err := reg.Register(c); err != nil {
+		var already prometheus.AlreadyRegisteredError
+		if errors.As(err, &already) {
+			if existing, ok := already.ExistingCollector.(T); ok {
+				return existing, nil
+			}
+			return c, fmt.Errorf("already-registered rate limit metric has unexpected type %T", already.ExistingCollector)
+		}
+		return c, err
+	}
+	return c, nil
+}
+
+// initializeMetrics creates the rate limit collectors and registers them with the
+// provided registry, reconciling against any collectors already registered (by a
+// sibling handler sharing the registry). The returned struct always references the
+// collectors that are actually registered with reg.
+func initializeMetrics(reg prometheus.Registerer) (*rateLimitMetrics, error) {
 	const ns, sub = "caddy", "rate_limit"
 
 	metrics := &rateLimitMetrics{
@@ -86,43 +117,35 @@ func initializeMetrics(registry prometheus.Registerer) (*rateLimitMetrics, error
 		),
 	}
 
-	// Register each metric and check for AlreadyRegisteredError
-	collectors := []prometheus.Collector{
-		metrics.declinedTotal,
-		metrics.requestsTotal,
-		metrics.processTime,
-		metrics.keysTotal,
-		metrics.config,
+	var err error
+	if metrics.declinedTotal, err = register(reg, metrics.declinedTotal); err != nil {
+		return nil, err
 	}
-
-	for _, collector := range collectors {
-		if err := registry.Register(collector); err != nil {
-			// Check if it's already registered error, which is expected on config reload
-			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
-				// If it's not an AlreadyRegisteredError, return the actual error
-				return nil, err
-			}
-			// If it's AlreadyRegisteredError, continue - this is expected
-		}
+	if metrics.requestsTotal, err = register(reg, metrics.requestsTotal); err != nil {
+		return nil, err
 	}
-
+	if metrics.processTime, err = register(reg, metrics.processTime); err != nil {
+		return nil, err
+	}
+	if metrics.keysTotal, err = register(reg, metrics.keysTotal); err != nil {
+		return nil, err
+	}
+	if metrics.config, err = register(reg, metrics.config); err != nil {
+		return nil, err
+	}
 	return metrics, nil
 }
 
-// registerMetrics registers all rate limit metrics with the provided Prometheus registry
+// registerMetrics builds the rate limit collectors against reg — which Caddy
+// replaces with a fresh registry on every config reload — and atomically
+// publishes them so the record* methods (and thus the /metrics endpoint) observe
+// the collectors registered with the currently-served registry. See issue #100.
 func registerMetrics(reg prometheus.Registerer) error {
-	// Try to initialize metrics - may handle AlreadyRegisteredError gracefully
 	metrics, err := initializeMetrics(reg)
 	if err != nil {
 		return err
 	}
-
-	// Set the global metrics instance if it's nil
-	// On config reload, this ensures we continue using metrics even if some were already registered
-	if globalMetrics == nil {
-		globalMetrics = metrics
-	}
-
+	globalMetrics.Store(metrics)
 	return nil
 }
 
@@ -138,7 +161,8 @@ func newMetricsCollector() *metricsCollector {
 
 // recordRequest records a request that passed through the rate limit module
 func (mc *metricsCollector) recordRequest(hasZone bool) {
-	if !mc.enabled || globalMetrics == nil {
+	m := globalMetrics.Load()
+	if !mc.enabled || m == nil {
 		return
 	}
 
@@ -147,34 +171,37 @@ func (mc *metricsCollector) recordRequest(hasZone bool) {
 		hasZoneStr = "true"
 	}
 	// Record zone-level aggregate metric (key is empty for zone-level aggregation)
-	globalMetrics.requestsTotal.WithLabelValues(hasZoneStr, "").Inc()
+	m.requestsTotal.WithLabelValues(hasZoneStr, "").Inc()
 }
 
 // recordRequestPerKey records a request for a specific zone and key
 func (mc *metricsCollector) recordRequestPerKey(zone, key string) {
-	if !mc.enabled || globalMetrics == nil {
+	m := globalMetrics.Load()
+	if !mc.enabled || m == nil {
 		return
 	}
 
 	// Record both zone-level aggregate and per-key detailed metrics
-	globalMetrics.requestsTotal.WithLabelValues(zone, "").Inc()  // Zone-level aggregate
-	globalMetrics.requestsTotal.WithLabelValues(zone, key).Inc() // Per-key detailed
+	m.requestsTotal.WithLabelValues(zone, "").Inc()  // Zone-level aggregate
+	m.requestsTotal.WithLabelValues(zone, key).Inc() // Per-key detailed
 }
 
 // recordDeclinedRequest records a request that was declined due to rate limiting
 func (mc *metricsCollector) recordDeclinedRequest(zone, key string) {
-	if !mc.enabled || globalMetrics == nil {
+	m := globalMetrics.Load()
+	if !mc.enabled || m == nil {
 		return
 	}
 
 	// Record both zone-level aggregate and per-key detailed metrics
-	globalMetrics.declinedTotal.WithLabelValues(zone, "").Inc()  // Zone-level aggregate
-	globalMetrics.declinedTotal.WithLabelValues(zone, key).Inc() // Per-key detailed
+	m.declinedTotal.WithLabelValues(zone, "").Inc()  // Zone-level aggregate
+	m.declinedTotal.WithLabelValues(zone, key).Inc() // Per-key detailed
 }
 
 // recordProcessTime records the time taken to process rate limiting
 func (mc *metricsCollector) recordProcessTime(duration time.Duration, hasZone bool) {
-	if !mc.enabled || globalMetrics == nil {
+	m := globalMetrics.Load()
+	if !mc.enabled || m == nil {
 		return
 	}
 
@@ -183,36 +210,39 @@ func (mc *metricsCollector) recordProcessTime(duration time.Duration, hasZone bo
 		hasZoneStr = "true"
 	}
 	// Record zone-level aggregate metric (key is empty for zone-level aggregation)
-	globalMetrics.processTime.WithLabelValues(hasZoneStr, "").Observe(duration.Seconds())
+	m.processTime.WithLabelValues(hasZoneStr, "").Observe(duration.Seconds())
 }
 
 // recordProcessTimePerKey records the time taken to process rate limiting for a specific zone and key
 func (mc *metricsCollector) recordProcessTimePerKey(duration time.Duration, zone, key string) {
-	if !mc.enabled || globalMetrics == nil {
+	m := globalMetrics.Load()
+	if !mc.enabled || m == nil {
 		return
 	}
 
 	// Record both zone-level aggregate and per-key detailed metrics
-	globalMetrics.processTime.WithLabelValues(zone, "").Observe(duration.Seconds())  // Zone-level aggregate
-	globalMetrics.processTime.WithLabelValues(zone, key).Observe(duration.Seconds()) // Per-key detailed
+	m.processTime.WithLabelValues(zone, "").Observe(duration.Seconds())  // Zone-level aggregate
+	m.processTime.WithLabelValues(zone, key).Observe(duration.Seconds()) // Per-key detailed
 }
 
 // updateKeysCount updates the count of keys for a specific zone
 func (mc *metricsCollector) updateKeysCount(zone string, count int) {
-	if !mc.enabled || globalMetrics == nil {
+	m := globalMetrics.Load()
+	if !mc.enabled || m == nil {
 		return
 	}
 
-	globalMetrics.keysTotal.WithLabelValues(zone).Set(float64(count))
+	m.keysTotal.WithLabelValues(zone).Set(float64(count))
 }
 
 // recordConfig records the configuration of a rate limit zone (called once during provision)
 func (mc *metricsCollector) recordConfig(zone string, maxEvents int, window time.Duration, ipv4Prefix, ipv6Prefix int) {
-	if !mc.enabled || globalMetrics == nil {
+	m := globalMetrics.Load()
+	if !mc.enabled || m == nil {
 		return
 	}
 
-	globalMetrics.config.WithLabelValues(zone,
+	m.config.WithLabelValues(zone,
 		strconv.Itoa(maxEvents),
 		window.String(),
 		strconv.Itoa(ipv4Prefix),
