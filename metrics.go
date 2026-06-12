@@ -1,6 +1,7 @@
 package caddyrl
 
 import (
+	"errors"
 	"strconv"
 	"time"
 
@@ -16,19 +17,18 @@ type rateLimitMetrics struct {
 	config        *prometheus.CounterVec
 }
 
-// globalMetrics is a package-level singleton that holds the registered Prometheus
-// collectors. It must be a singleton because Prometheus does not allow the same
-// collector to be registered twice in a registry. During Caddy config reloads
-// each Handler is re-provisioned, but the metrics registry persists, so
-// registerMetrics only sets this on the first successful registration and all
-// subsequent Handler instances share the same collectors via this reference.
+// globalMetrics is a package-level singleton holding the collectors. The
+// collectors are created once but registered with every config's registry:
+// Caddy provisions a fresh metrics registry on each reload and points /metrics
+// at it, so registerMetrics re-registers the existing collectors with the new
+// registry to keep them reported (and their values intact) across reloads.
 var globalMetrics *rateLimitMetrics
 
-// initializeMetrics creates and registers all rate limit metrics with Caddy's internal registry
-func initializeMetrics(registry prometheus.Registerer) (*rateLimitMetrics, error) {
+// newMetrics builds the rate limit collectors (without registering them).
+func newMetrics() *rateLimitMetrics {
 	const ns, sub = "caddy", "rate_limit"
 
-	metrics := &rateLimitMetrics{
+	return &rateLimitMetrics{
 		// rate_limit_declined_requests_total - Total number of requests declined with HTTP 429
 		declinedTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -85,44 +85,30 @@ func initializeMetrics(registry prometheus.Registerer) (*rateLimitMetrics, error
 			[]string{"zone", "max_events", "window", "ipv4_prefix", "ipv6_prefix"},
 		),
 	}
-
-	// Register each metric and check for AlreadyRegisteredError
-	collectors := []prometheus.Collector{
-		metrics.declinedTotal,
-		metrics.requestsTotal,
-		metrics.processTime,
-		metrics.keysTotal,
-		metrics.config,
-	}
-
-	for _, collector := range collectors {
-		if err := registry.Register(collector); err != nil {
-			// Check if it's already registered error, which is expected on config reload
-			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
-				// If it's not an AlreadyRegisteredError, return the actual error
-				return nil, err
-			}
-			// If it's AlreadyRegisteredError, continue - this is expected
-		}
-	}
-
-	return metrics, nil
 }
 
-// registerMetrics registers all rate limit metrics with the provided Prometheus registry
+// registerMetrics registers the rate limit collectors with reg. The collectors
+// are created once and re-registered with each config's registry (Caddy makes a
+// new one on every reload), so /metrics keeps reporting them after a reload. An
+// AlreadyRegisteredError means another rate_limit handler already registered them
+// with this registry, which is expected and fine.
 func registerMetrics(reg prometheus.Registerer) error {
-	// Try to initialize metrics - may handle AlreadyRegisteredError gracefully
-	metrics, err := initializeMetrics(reg)
-	if err != nil {
-		return err
-	}
-
-	// Set the global metrics instance if it's nil
-	// On config reload, this ensures we continue using metrics even if some were already registered
 	if globalMetrics == nil {
-		globalMetrics = metrics
+		globalMetrics = newMetrics()
 	}
 
+	for _, c := range []prometheus.Collector{
+		globalMetrics.declinedTotal,
+		globalMetrics.requestsTotal,
+		globalMetrics.processTime,
+		globalMetrics.keysTotal,
+		globalMetrics.config,
+	} {
+		var already prometheus.AlreadyRegisteredError
+		if err := reg.Register(c); err != nil && !errors.As(err, &already) {
+			return err
+		}
+	}
 	return nil
 }
 
